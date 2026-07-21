@@ -4,18 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"net"
-	"os"
 	"strconv"
 	"strings"
-	"time"
 )
-
-// Ensures gofmt doesn't remove the "net" and "os" imports in stage 1 (feel free to remove this!)
-var _ = net.Listen
-var _ = os.Exit
-
-var cache = map[string]string{}
 
 // format: *<number of elements>\r\n<element1><element2>...<elementN>
 func handleRESPArray(reader *bufio.Reader) (interface{}, error) {
@@ -131,105 +122,5 @@ func ParseRESP(reader *bufio.Reader) (interface{}, error) {
 		return handleRESPInteger(reader)
 	default:
 		return nil, fmt.Errorf("unknown prefix: %c", prefix)
-	}
-}
-
-func writeBulkString(conn net.Conn, s string) error {
-	_, err := fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(s), s)
-	return err
-}
-
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	reader := bufio.NewReader(conn)
-	for {
-		val, err := ParseRESP(reader)
-		if err != nil {
-			fmt.Println("parse error:", err)
-			break
-		}
-		// val.([]interface{}) is the parsed RESP array
-		// Expecting an array: [command, arg...]
-		arr, ok := val.([]interface{})
-		if !ok || len(arr) == 0 {
-			// ignore non-array or empty
-			continue
-		}
-		// command should be a string (bulk or simple)
-		cmdRaw, ok := arr[0].(string)
-		if !ok {
-			continue
-		}
-		cmd := strings.ToUpper(cmdRaw)
-		switch cmd {
-		case "PING":
-			if len(arr) == 1 {
-				conn.Write([]byte("+PONG\r\n"))
-			}
-		case "ECHO":
-			if len(arr) < 2 {
-				// return nil bulk string
-				conn.Write([]byte("$-1\r\n"))
-				continue
-			}
-			arg, _ := arr[1].(string)
-			writeBulkString(conn, arg)
-		case "SET":
-			if len(arr) < 3 {
-				conn.Write([]byte("-ERR wrong number of arguments for 'SET' command\r\n"))
-				continue
-			}
-			key, _ := arr[1].(string)
-			value, _ := arr[2].(string)
-			cache[key] = value
-			if len(arr) > 4 && (strings.ToUpper(arr[3].(string)) == "EX" || strings.ToUpper(arr[3].(string)) == "PX") {
-				go func() {
-					res, _ := strconv.Atoi(arr[4].(string))
-					if strings.ToUpper(arr[3].(string)) == "EX" {
-						res *= 1000 // convert seconds to milliseconds
-					}
-					time.Sleep(time.Duration(res) * time.Millisecond)
-					delete(cache, key)
-				}()
-			}
-			conn.Write([]byte("+OK\r\n"))
-		case "GET":
-			if len(arr) < 2 {
-				conn.Write([]byte("-ERR wrong number of arguments for 'GET' command\r\n"))
-				continue
-			}
-			key, _ := arr[1].(string)
-			value, exists := cache[key]
-			if !exists {
-				conn.Write([]byte("$-1\r\n")) // Null Bulk String
-			} else {
-				writeBulkString(conn, value)
-			}
-		default:
-			// Unknown command: respond with error
-			conn.Write([]byte("-ERR unknown command\r\n"))
-		}
-	}
-}
-
-func main() {
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	fmt.Println("Logs from your program will appear here!")
-
-	// Uncomment this block to pass the first stage
-	//
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
-	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
-		os.Exit(1)
-	}
-	defer l.Close()
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
-		}
-		go handleConnection(conn)
 	}
 }
