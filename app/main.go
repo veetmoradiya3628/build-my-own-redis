@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Ensures gofmt doesn't remove the "net" and "os" imports in stage 1 (feel free to remove this!)
@@ -181,6 +182,16 @@ func handleConnection(conn net.Conn) {
 			key, _ := arr[1].(string)
 			value, _ := arr[2].(string)
 			cache[key] = value
+			if len(arr) > 4 && (strings.ToUpper(arr[3].(string)) == "EX" || strings.ToUpper(arr[3].(string)) == "PX") {
+				go func() {
+					res, _ := strconv.Atoi(arr[4].(string))
+					if strings.ToUpper(arr[3].(string)) == "EX" {
+						res *= 1000 // convert seconds to milliseconds
+					}
+					time.Sleep(time.Duration(res) * time.Millisecond)
+					delete(cache, key)
+				}()
+			}
 			conn.Write([]byte("+OK\r\n"))
 		case "GET":
 			if len(arr) < 2 {
