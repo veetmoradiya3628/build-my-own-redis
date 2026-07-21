@@ -15,6 +15,7 @@ func handleConnection(conn net.Conn) {
 	buf := make([]byte, 1024)
 	for {
 		_, err := conn.Read(buf)
+		// fmt.Println("received : ", string(buf))
 		if err != nil {
 			break
 		}
@@ -33,10 +34,13 @@ func main() {
 		fmt.Println("Failed to bind to port 6379")
 		os.Exit(1)
 	}
-	conn, err := l.Accept()
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
+	defer l.Close()
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err.Error())
+			os.Exit(1)
+		}
+		go handleConnection(conn)
 	}
-	go handleConnection(conn)
 }
