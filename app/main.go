@@ -14,6 +14,8 @@ import (
 var _ = net.Listen
 var _ = os.Exit
 
+var cache = map[string]string{}
+
 // format: *<number of elements>\r\n<element1><element2>...<elementN>
 func handleRESPArray(reader *bufio.Reader) (interface{}, error) {
 	line, err := reader.ReadString('\n')
@@ -171,6 +173,27 @@ func handleConnection(conn net.Conn) {
 			}
 			arg, _ := arr[1].(string)
 			writeBulkString(conn, arg)
+		case "SET":
+			if len(arr) < 3 {
+				conn.Write([]byte("-ERR wrong number of arguments for 'SET' command\r\n"))
+				continue
+			}
+			key, _ := arr[1].(string)
+			value, _ := arr[2].(string)
+			cache[key] = value
+			conn.Write([]byte("+OK\r\n"))
+		case "GET":
+			if len(arr) < 2 {
+				conn.Write([]byte("-ERR wrong number of arguments for 'GET' command\r\n"))
+				continue
+			}
+			key, _ := arr[1].(string)
+			value, exists := cache[key]
+			if !exists {
+				conn.Write([]byte("$-1\r\n")) // Null Bulk String
+			} else {
+				writeBulkString(conn, value)
+			}
 		default:
 			// Unknown command: respond with error
 			conn.Write([]byte("-ERR unknown command\r\n"))
