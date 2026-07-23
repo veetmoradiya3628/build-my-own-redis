@@ -89,6 +89,10 @@ func handleCommand(conn net.Conn, arr []interface{}, store *Store) {
 		handleLRANGE(conn, arr, store)
 	case "LLEN":
 		handleLLEN(conn, arr, store)
+	case "LPOP":
+		handleLPOP(conn, arr, store)
+	case "RPOP":
+		handleRPOP(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -243,5 +247,51 @@ func handleLLEN(conn net.Conn, arr []interface{}, store *Store) {
 		}
 	} else {
 		_, _ = conn.Write([]byte(":0\r\n"))
+	}
+}
+
+func handleLPOP(conn net.Conn, arr []interface{}, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'LPOP' command")
+		return
+	}
+	key, _ := asString(arr[1])
+	if v, ok := store.Get(key); ok {
+		if list, ok := v.([]string); ok {
+			if len(list) == 0 {
+				writeNullBulk(conn)
+				return
+			}
+			poppedValue := list[0]
+			store.Set(key, list[1:])
+			writeBulkString(conn, poppedValue)
+		} else {
+			writeErr(conn, "LPOP key is not a list")
+		}
+	} else {
+		writeNullBulk(conn)
+	}
+}
+
+func handleRPOP(conn net.Conn, arr []interface{}, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'RPOP' command")
+		return
+	}
+	key, _ := asString(arr[1])
+	if v, ok := store.Get(key); ok {
+		if list, ok := v.([]string); ok {
+			if len(list) == 0 {
+				writeNullBulk(conn)
+				return
+			}
+			poppedValue := list[len(list)-1]
+			store.Set(key, list[:len(list)-1])
+			writeBulkString(conn, poppedValue)
+		} else {
+			writeErr(conn, "RPOP key is not a list")
+		}
+	} else {
+		writeNullBulk(conn)
 	}
 }

@@ -185,3 +185,53 @@ func TestLLENReturnsZeroForNonExistentKey(t *testing.T) {
 		t.Fatal("expected LLEN handler to finish")
 	}
 }
+
+func TestLPOPReturnsFirstElement(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	store := NewStore()
+	store.RPush("k1", []string{"1", "2", "3"}...)
+
+	done := make(chan struct{})
+	go func() {
+		handleLPOP(server, []interface{}{"LPOP", "k1"}, store)
+		close(done)
+	}()
+
+	buf := make([]byte, 32)
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatalf("expected LPOP response, got error: %v", err)
+	}
+
+	if got := string(buf[:n]); got != "$1\r\n1\r\n" {
+		t.Fatalf("expected bulk string reply $1\r\n1\r\n, got %q", got)
+	}
+}
+
+func TestRPOPReturnsLastElement(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	store := NewStore()
+	store.RPush("k1", []string{"1", "2", "3"}...)
+
+	done := make(chan struct{})
+	go func() {
+		handleRPOP(server, []interface{}{"RPOP", "k1"}, store)
+		close(done)
+	}()
+
+	buf := make([]byte, 32)
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatalf("expected RPOP response, got error: %v", err)
+	}
+
+	if got := string(buf[:n]); got != "$1\r\n3\r\n" {
+		t.Fatalf("expected bulk string reply $1\r\n3\r\n, got %q", got)
+	}
+}
