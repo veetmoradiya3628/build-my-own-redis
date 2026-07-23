@@ -125,3 +125,63 @@ func TestLPushPreservesRedisOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestLLENReturnsCorrectLength(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	store := NewStore()
+	store.RPush("k1", []string{"1", "2", "3"}...)
+
+	done := make(chan struct{})
+	go func() {
+		handleLLEN(server, []interface{}{"LLEN", "k1"}, store)
+		close(done)
+	}()
+
+	buf := make([]byte, 32)
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatalf("expected LLEN response, got error: %v", err)
+	}
+
+	if got := string(buf[:n]); got != ":3\r\n" {
+		t.Fatalf("expected integer reply :3\r\n, got %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("expected LLEN handler to finish")
+	}
+}
+
+func TestLLENReturnsZeroForNonExistentKey(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	store := NewStore()
+	done := make(chan struct{})
+	go func() {
+		handleLLEN(server, []interface{}{"LLEN", "nonexistent"}, store)
+		close(done)
+	}()
+
+	buf := make([]byte, 32)
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatalf("expected LLEN response, got error: %v", err)
+	}
+
+	if got := string(buf[:n]); got != ":0\r\n" {
+		t.Fatalf("expected integer reply :0\r\n, got %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("expected LLEN handler to finish")
+	}
+}

@@ -87,6 +87,8 @@ func handleCommand(conn net.Conn, arr []interface{}, store *Store) {
 		handleRPUSH(conn, arr, store)
 	case "LRANGE":
 		handleLRANGE(conn, arr, store)
+	case "LLEN":
+		handleLLEN(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -223,5 +225,23 @@ func handleLRANGE(conn net.Conn, arr []interface{}, store *Store) {
 		}
 	} else {
 		conn.Write([]byte("*0\r\n"))
+	}
+}
+
+func handleLLEN(conn net.Conn, arr []interface{}, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'LLEN' command")
+		return
+	}
+	key, _ := asString(arr[1])
+	if v, ok := store.Get(key); ok {
+		if list, ok := v.([]string); ok {
+			length := len(list)
+			_, _ = conn.Write([]byte(":" + strconv.Itoa(length) + "\r\n"))
+		} else {
+			writeErr(conn, "LLEN key is not a list")
+		}
+	} else {
+		_, _ = conn.Write([]byte(":0\r\n"))
 	}
 }
