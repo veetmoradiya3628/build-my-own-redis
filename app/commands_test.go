@@ -98,3 +98,30 @@ func TestHandleLRangeWithNegativeIndices(t *testing.T) {
 		t.Fatal("expected LRANGE handler to finish")
 	}
 }
+
+func TestLPushPreservesRedisOrder(t *testing.T) {
+	store := NewStore()
+	store.RPush("strawberry", "raspberry")
+
+	store.LPush("strawberry", "grape", "orange")
+
+	list, ok := store.Get("strawberry")
+	if !ok {
+		t.Fatal("expected list to be stored")
+	}
+
+	values, ok := list.([]string)
+	if !ok {
+		t.Fatalf("expected list type []string, got %T", list)
+	}
+
+	want := []string{"orange", "grape", "raspberry"}
+	if len(values) != len(want) {
+		t.Fatalf("expected %d values, got %d", len(want), len(values))
+	}
+	for i := range want {
+		if values[i] != want[i] {
+			t.Fatalf("expected value %d to be %q, got %q", i, want[i], values[i])
+		}
+	}
+}

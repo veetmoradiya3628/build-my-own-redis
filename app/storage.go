@@ -49,13 +49,22 @@ func (s *Store) LPush(key string, values ...string) int {
 
 	if existing, ok := s.cache[key]; ok {
 		if list, ok := existing.([]string); ok {
-			newList := append(values, list...)
+			newList := make([]string, 0, len(values)+len(list))
+			for i := len(values) - 1; i >= 0; i-- {
+				newList = append(newList, values[i])
+			}
+			newList = append(newList, list...)
 			s.cache[key] = newList
 			return len(newList)
 		}
 	}
-	s.cache[key] = values
-	return len(values)
+
+	reversed := make([]string, len(values))
+	for i, v := range values {
+		reversed[len(values)-1-i] = v
+	}
+	s.cache[key] = reversed
+	return len(reversed)
 }
 
 // RPush appends values to a list stored at key. If the key does not exist, it creates a new list.
