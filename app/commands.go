@@ -47,7 +47,7 @@ func parseTTL(arr []interface{}) (int, bool) {
 
 // handleCommand dispatches a parsed RESP array (as []interface{}) to
 // the appropriate command handler. It writes responses directly to conn.
-func handleCommand(conn net.Conn, arr []interface{}) {
+func handleCommand(conn net.Conn, arr []interface{}, store *Store) {
 	if len(arr) == 0 {
 		return
 	}
@@ -62,9 +62,13 @@ func handleCommand(conn net.Conn, arr []interface{}) {
 	case "ECHO":
 		handleECHO(conn, arr)
 	case "SET":
-		handleSET(conn, arr)
+		handleSET(conn, arr, store)
 	case "GET":
-		handleGET(conn, arr)
+		handleGET(conn, arr, store)
+	case "LPUSH":
+		handleLPUSH(conn, arr, store)
+	case "RPUSH":
+		handleRPUSH(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -91,7 +95,7 @@ func handleECHO(conn net.Conn, arr []interface{}) {
 }
 
 // handleSET stores a key/value pair and supports optional EX/PX TTL.
-func handleSET(conn net.Conn, arr []interface{}) {
+func handleSET(conn net.Conn, arr []interface{}, store *Store) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'SET' command")
 		return
@@ -99,24 +103,62 @@ func handleSET(conn net.Conn, arr []interface{}) {
 	key, _ := asString(arr[1])
 	value, _ := asString(arr[2])
 	if ttl, ok := parseTTL(arr); ok {
-		SetWithTTL(key, value, ttl)
+		store.SetWithTTL(key, value, ttl)
 		writeOK(conn)
 		return
 	}
-	Set(key, value)
+	store.Set(key, value)
 	writeOK(conn)
 }
 
 // handleGET retrieves a key and returns it as a bulk string or null.
-func handleGET(conn net.Conn, arr []interface{}) {
+func handleGET(conn net.Conn, arr []interface{}, store *Store) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'GET' command")
 		return
 	}
 	key, _ := asString(arr[1])
-	if v, ok := Get(key); ok {
-		writeBulkString(conn, v)
+	if v, ok := store.Get(key); ok {
+		writeBulkString(conn, v.(string))
 	} else {
 		writeNullBulk(conn)
 	}
+}
+
+func handleLPUSH(conn net.Conn, arr []interface{}, store *Store) {
+	if len(arr) < 3 {
+		writeErr(conn, "wrong number of arguments for 'LPUSH' command")
+		return
+	}
+	key, _ := asString(arr[1])
+	values := make([]string, 0, len(arr)-2)
+	for _, v := range arr[2:] {
+		if str, ok := asString(v); ok {
+			values = append(values, str)
+		} else {
+			writeErr(conn, "LPUSH values must be strings")
+			return
+		}
+	}
+	length := store.LPush(key, values...)
+	_, _ = conn.Write([]byte(":" + strconv.Itoa(length) + "\r\n"))
+}
+
+func handleRPUSH(conn net.Conn, arr []interface{}, store *Store) {
+	if len(arr) < 3 {
+		writeErr(conn, "wrong number of arguments for 'RPUSH' command")
+		return
+	}
+	key, _ := asString(arr[1])
+	values := make([]string, 0, len(arr)-2)
+	for _, v := range arr[2:] {
+		if str, ok := asString(v); ok {
+			values = append(values, str)
+		} else {
+			writeErr(conn, "RPUSH values must be strings")
+			return
+		}
+	}
+	length := store.RPush(key, values...)
+	_, _ = conn.Write([]byte(":" + strconv.Itoa(length) + "\r\n"))
 }

@@ -5,33 +5,71 @@ import (
 	"time"
 )
 
-var (
-	cache   = map[string]string{}
-	cacheMu sync.RWMutex
-)
+type Store struct {
+	cache map[string]any
+	mu    sync.RWMutex
+}
+
+func NewStore() *Store {
+	return &Store{
+		cache: make(map[string]any),
+	}
+}
 
 // Set stores a key/value pair without expiration.
-func Set(key, value string) {
-	cacheMu.Lock()
-	cache[key] = value
-	cacheMu.Unlock()
+func (s *Store) Set(key string, value any) {
+	s.mu.Lock()
+	s.cache[key] = value
+	s.mu.Unlock()
 }
 
 // SetWithTTL stores a key/value pair and deletes it after ttlMillis milliseconds.
-func SetWithTTL(key, value string, ttlMillis int) {
-	Set(key, value)
+func (s *Store) SetWithTTL(key string, value any, ttlMillis int) {
+	s.Set(key, value)
 	go func() {
 		time.Sleep(time.Duration(ttlMillis) * time.Millisecond)
-		cacheMu.Lock()
-		delete(cache, key)
-		cacheMu.Unlock()
+		s.mu.Lock()
+		delete(s.cache, key)
+		s.mu.Unlock()
 	}()
 }
 
 // Get returns the value and whether it exists.
-func Get(key string) (string, bool) {
-	cacheMu.RLock()
-	v, ok := cache[key]
-	cacheMu.RUnlock()
+func (s *Store) Get(key string) (any, bool) {
+	s.mu.RLock()
+	v, ok := s.cache[key]
+	s.mu.RUnlock()
 	return v, ok
+}
+
+// LPush prepends values to a list stored at key. If the key does not exist, it creates a new list.
+func (s *Store) LPush(key string, values ...string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing, ok := s.cache[key]; ok {
+		if list, ok := existing.([]string); ok {
+			newList := append(values, list...)
+			s.cache[key] = newList
+			return len(newList)
+		}
+	}
+	s.cache[key] = values
+	return len(values)
+}
+
+// RPush appends values to a list stored at key. If the key does not exist, it creates a new list.
+func (s *Store) RPush(key string, values ...string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing, ok := s.cache[key]; ok {
+		if list, ok := existing.([]string); ok {
+			newList := append(list, values...)
+			s.cache[key] = newList
+			return len(newList)
+		}
+	}
+	s.cache[key] = values
+	return len(values)
 }
