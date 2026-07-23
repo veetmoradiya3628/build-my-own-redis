@@ -17,6 +17,22 @@ func writeOK(conn net.Conn)              { conn.Write([]byte("+OK\r\n")) }
 func writeErr(conn net.Conn, msg string) { conn.Write([]byte("-ERR " + msg + "\r\n")) }
 func writeNullBulk(conn net.Conn)        { conn.Write([]byte("$-1\r\n")) }
 
+func writeArrayResponse(conn net.Conn, items []string) error {
+	var builder strings.Builder
+	builder.WriteString("*")
+	builder.WriteString(strconv.Itoa(len(items)))
+	builder.WriteString("\r\n")
+	for _, item := range items {
+		builder.WriteString("$")
+		builder.WriteString(strconv.Itoa(len(item)))
+		builder.WriteString("\r\n")
+		builder.WriteString(item)
+		builder.WriteString("\r\n")
+	}
+	_, err := conn.Write([]byte(builder.String()))
+	return err
+}
+
 // parseTTL checks for EX/PX options in SET arguments and returns
 // ttl in milliseconds and true if present and valid.
 func parseTTL(arr []interface{}) (int, bool) {
@@ -69,6 +85,8 @@ func handleCommand(conn net.Conn, arr []interface{}, store *Store) {
 		handleLPUSH(conn, arr, store)
 	case "RPUSH":
 		handleRPUSH(conn, arr, store)
+	case "LRANGE":
+		handleLRANGE(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -161,4 +179,49 @@ func handleRPUSH(conn net.Conn, arr []interface{}, store *Store) {
 	}
 	length := store.RPush(key, values...)
 	_, _ = conn.Write([]byte(":" + strconv.Itoa(length) + "\r\n"))
+}
+
+func handleLRANGE(conn net.Conn, arr []interface{}, store *Store) {
+	if len(arr) < 4 {
+		writeErr(conn, "wrong number of arguments for 'LRANGE' command")
+		return
+	}
+	key, _ := asString(arr[1])
+	startStr, _ := asString(arr[2])
+	endStr, _ := asString(arr[3])
+	start, err1 := strconv.Atoi(startStr)
+	end, err2 := strconv.Atoi(endStr)
+	if err1 != nil || err2 != nil {
+		writeErr(conn, "LRANGE start and end must be integers")
+		return
+	}
+	if v, ok := store.Get(key); ok {
+		if list, ok := v.([]string); ok {
+			length := len(list)
+			if start < 0 {
+				start = length + start
+			}
+			if end < 0 {
+				end = length + end
+			}
+			if start < 0 {
+				start = 0
+			}
+			if end >= length {
+				end = length - 1
+			}
+			if start > end || start >= length {
+				conn.Write([]byte("*0\r\n"))
+				return
+			}
+			sublist := list[start : end+1]
+			if err := writeArrayResponse(conn, sublist); err != nil {
+				return
+			}
+		} else {
+			writeErr(conn, "LRANGE key is not a list")
+		}
+	} else {
+		conn.Write([]byte("*0\r\n"))
+	}
 }
