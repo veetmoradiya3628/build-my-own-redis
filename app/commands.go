@@ -275,7 +275,11 @@ func handleLPOP(conn net.Conn, arr []interface{}, store *Store) {
 			}
 			poppedValues := list[:cnt]
 			store.Set(key, list[cnt:])
-			writeArrayResponse(conn, poppedValues)
+			if len(poppedValues) == 1 {
+				writeBulkString(conn, poppedValues[0])
+			} else {
+				writeArrayResponse(conn, poppedValues)
+			}
 		} else {
 			writeErr(conn, "LPOP key is not a list")
 		}
