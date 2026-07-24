@@ -256,7 +256,10 @@ func handleLPOP(conn net.Conn, arr []interface{}, store *Store) {
 		return
 	}
 	key, _ := asString(arr[1])
-	cnt, _ := strconv.Atoi(arr[2].(string))
+	cnt := 1
+	if len(arr) == 3 {
+		cnt, _ = strconv.Atoi(arr[2].(string))
+	}
 	if v, ok := store.Get(key); ok {
 		if list, ok := v.([]string); ok {
 			if len(list) == 0 {
