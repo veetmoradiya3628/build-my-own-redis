@@ -256,15 +256,23 @@ func handleLPOP(conn net.Conn, arr []interface{}, store *Store) {
 		return
 	}
 	key, _ := asString(arr[1])
+	cnt, _ := strconv.Atoi(arr[2].(string))
 	if v, ok := store.Get(key); ok {
 		if list, ok := v.([]string); ok {
 			if len(list) == 0 {
 				writeNullBulk(conn)
 				return
 			}
-			poppedValue := list[0]
-			store.Set(key, list[1:])
-			writeBulkString(conn, poppedValue)
+			if cnt <= 0 {
+				writeErr(conn, "LPOP count must be a positive integer")
+				return
+			}
+			if cnt > len(list) {
+				cnt = len(list)
+			}
+			poppedValues := list[:cnt]
+			store.Set(key, list[cnt:])
+			writeArrayResponse(conn, poppedValues)
 		} else {
 			writeErr(conn, "LPOP key is not a list")
 		}
