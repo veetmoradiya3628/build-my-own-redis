@@ -84,3 +84,23 @@ func (s *Store) RPush(key string, values ...string) int {
 	s.cache[key] = values
 	return len(values)
 }
+
+// helper function to clean up expired channel for the key from waiters map
+func (s *Store) CleanUpExpiredKeyWaiter(key string, waiterChan chan string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if queues, exists := s.waiters[key]; exists {
+		for i, ch := range queues {
+			if ch == waiterChan {
+				// Remove this specific channel
+				s.waiters[key] = append(queues[:i], queues[i+1:]...)
+				break
+			}
+		}
+		// Clean up the key if the queue is now empty
+		if len(s.waiters[key]) == 0 {
+			delete(s.waiters, key)
+		}
+	}
+}

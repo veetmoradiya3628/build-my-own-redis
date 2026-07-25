@@ -4,6 +4,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Helper: safely assert interface{} to string
@@ -379,6 +380,13 @@ func handleBLPOP(conn net.Conn, arr []interface{}, store *Store) {
 	}
 
 	key, _ := asString(arr[1])
+	timeoutStr, _ := asString(arr[len(arr)-1])
+
+	timeoutSeconds, err := strconv.ParseFloat(timeoutStr, 64)
+	if err != nil {
+		writeErr(conn, "timeout is not a float or integer")
+		return
+	}
 
 	store.mu.Lock()
 	if list, exists := store.cache[key].([]string); exists && len(list) > 0 {
@@ -396,8 +404,21 @@ func handleBLPOP(conn net.Conn, arr []interface{}, store *Store) {
 	store.waiters[key] = append(store.waiters[key], waiterChan)
 	store.mu.Unlock()
 
-	select {
-	case val := <-waiterChan:
+	if timeoutSeconds > 0 {
+		// Wait for either the value or the timeout
+		select {
+		case val := <-waiterChan:
+			writeArrayResponse(conn, []string{key, val})
+		case <-time.After(time.Duration(timeoutSeconds * float64(time.Second))):
+			// On timeout, return a null array
+			conn.Write([]byte("*-1\r\n"))
+
+			// Clean up the expired channel from the waiters map
+			store.CleanUpExpiredKeyWaiter(key, waiterChan)
+		}
+	} else {
+		// Timeout is 0: wait infinitely
+		val := <-waiterChan
 		writeArrayResponse(conn, []string{key, val})
 	}
 }
