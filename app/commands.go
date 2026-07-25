@@ -93,6 +93,8 @@ func handleCommand(conn net.Conn, arr []interface{}, store *Store) {
 		handleLPOP(conn, arr, store)
 	case "RPOP":
 		handleRPOP(conn, arr, store)
+	case "BLPOP":
+		handleBLPOP(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -164,8 +166,37 @@ func handleLPUSH(conn net.Conn, arr []interface{}, store *Store) {
 			return
 		}
 	}
-	length := store.LPush(key, values...)
-	_, _ = conn.Write([]byte(":" + strconv.Itoa(length) + "\r\n"))
+
+	var initialLen int
+	if v, ok := store.Get(key); ok {
+		if list, ok := v.([]string); ok {
+			initialLen = len(list)
+		}
+	}
+	expectedLen := initialLen + len(values)
+
+	store.mu.Lock()
+	var remaining []string
+	for _, val := range values {
+		if queues, exists := store.waiters[key]; exists && len(queues) > 0 {
+			waiterChan := queues[0]
+			store.waiters[key] = queues[1:]
+
+			if len(store.waiters[key]) == 0 {
+				delete(store.waiters, key)
+			}
+			waiterChan <- val
+		} else {
+			remaining = append(remaining, val)
+		}
+	}
+	store.mu.Unlock()
+
+	if len(remaining) > 0 {
+		store.LPush(key, remaining...)
+	}
+
+	_, _ = conn.Write([]byte(":" + strconv.Itoa(expectedLen) + "\r\n"))
 }
 
 func handleRPUSH(conn net.Conn, arr []interface{}, store *Store) {
@@ -183,8 +214,37 @@ func handleRPUSH(conn net.Conn, arr []interface{}, store *Store) {
 			return
 		}
 	}
-	length := store.RPush(key, values...)
-	_, _ = conn.Write([]byte(":" + strconv.Itoa(length) + "\r\n"))
+
+	var initialLen int
+	if v, ok := store.Get(key); ok {
+		if list, ok := v.([]string); ok {
+			initialLen = len(list)
+		}
+	}
+	expectedLen := initialLen + len(values)
+
+	store.mu.Lock()
+	var remaining []string
+	for _, val := range values {
+		if queues, exists := store.waiters[key]; exists && len(queues) > 0 {
+			waiterChan := queues[0]
+			store.waiters[key] = queues[1:]
+
+			if len(store.waiters[key]) == 0 {
+				delete(store.waiters, key)
+			}
+			waiterChan <- val
+		} else {
+			remaining = append(remaining, val)
+		}
+	}
+	store.mu.Unlock()
+
+	if len(remaining) > 0 {
+		store.RPush(key, remaining...)
+	}
+
+	_, _ = conn.Write([]byte(":" + strconv.Itoa(expectedLen) + "\r\n"))
 }
 
 func handleLRANGE(conn net.Conn, arr []interface{}, store *Store) {
@@ -308,5 +368,36 @@ func handleRPOP(conn net.Conn, arr []interface{}, store *Store) {
 		}
 	} else {
 		writeNullBulk(conn)
+	}
+}
+
+// timeout is always 0 as of now so clean up logic not added for waiters
+func handleBLPOP(conn net.Conn, arr []interface{}, store *Store) {
+	if len(arr) < 3 {
+		writeErr(conn, "wrong number of arguments for 'BLPOP' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+
+	store.mu.Lock()
+	if list, exists := store.cache[key].([]string); exists && len(list) > 0 {
+		val := list[0]
+		store.cache[key] = list[1:]
+		if len(store.cache[key].([]string)) == 0 {
+			delete(store.cache, key)
+		}
+		writeArrayResponse(conn, []string{key, val})
+		store.mu.Unlock()
+		return
+	}
+
+	waiterChan := make(chan string, 1)
+	store.waiters[key] = append(store.waiters[key], waiterChan)
+	store.mu.Unlock()
+
+	select {
+	case val := <-waiterChan:
+		writeArrayResponse(conn, []string{key, val})
 	}
 }

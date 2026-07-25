@@ -6,15 +6,15 @@ import (
 )
 
 type Store struct {
-	cache map[string]any
-	mu    sync.RWMutex
-	waiters map[string][]chan any
+	cache   map[string]any
+	mu      sync.RWMutex
+	waiters map[string][]chan string
 }
 
 func NewStore() *Store {
 	return &Store{
-		cache: make(map[string]any),
-		waiters: make(map[string][]chan any),
+		cache:   make(map[string]any),
+		waiters: make(map[string][]chan string),
 	}
 }
 
