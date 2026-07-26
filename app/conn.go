@@ -15,7 +15,7 @@ func writeBulkString(conn net.Conn, s string) error {
 // handleConnection reads RESP values from conn, dispatches commands,
 // and writes responses. Logging parse errors helps debugging without
 // mixing command logic here.
-func handleConnection(conn net.Conn, store *Store) {
+func handleConnection(conn net.Conn, store *Store, config ServerConfig) {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 	for {
@@ -28,6 +28,6 @@ func handleConnection(conn net.Conn, store *Store) {
 		if !ok || len(arr) == 0 {
 			continue
 		}
-		handleCommand(conn, arr, store)
+		handleCommand(conn, arr, store, config)
 	}
 }

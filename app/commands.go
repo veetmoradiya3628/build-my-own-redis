@@ -64,7 +64,7 @@ func parseTTL(arr []interface{}) (int, bool) {
 
 // handleCommand dispatches a parsed RESP array (as []interface{}) to
 // the appropriate command handler. It writes responses directly to conn.
-func handleCommand(conn net.Conn, arr []interface{}, store *Store) {
+func handleCommand(conn net.Conn, arr []interface{}, store *Store, config ServerConfig) {
 	if len(arr) == 0 {
 		return
 	}
@@ -96,6 +96,8 @@ func handleCommand(conn net.Conn, arr []interface{}, store *Store) {
 		handleRPOP(conn, arr, store)
 	case "BLPOP":
 		handleBLPOP(conn, arr, store)
+	case "CONFIG":
+		handleCONFIG(conn, arr, config)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -420,5 +422,44 @@ func handleBLPOP(conn net.Conn, arr []interface{}, store *Store) {
 		// Timeout is 0: wait infinitely
 		val := <-waiterChan
 		writeArrayResponse(conn, []string{key, val})
+	}
+}
+
+func handleCONFIG(conn net.Conn, arr []interface{}, config ServerConfig) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'CONFIG' command")
+		return // Added return to prevent out-of-bounds panics
+	}
+
+	if cmd, ok := asString(arr[1]); ok {
+		// It's good practice to make the command case-insensitive
+		switch strings.ToUpper(cmd) {
+		case "GET":
+			if len(arr) < 3 {
+				writeErr(conn, "wrong number of arguments for 'CONFIG GET' command")
+				return
+			}
+
+			param, ok := asString(arr[2])
+			if !ok {
+				writeErr(conn, "invalid parameter format")
+				return
+			}
+
+			var value string
+			// Match parameter (Redis parameter names are generally case-insensitive)
+			switch strings.ToLower(param) {
+			case "dir":
+				value = config.dir
+			case "dbfilename":
+				value = config.dbfilename
+			default:
+				value = ""
+			}
+
+			writeArrayResponse(conn, []string{param, value})
+		default:
+			writeErr(conn, "unknown CONFIG subcommand")
+		}
 	}
 }
