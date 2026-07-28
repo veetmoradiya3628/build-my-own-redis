@@ -111,6 +111,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleZCARD(conn, arr, store)
 	case "ZSCORE":
 		handleZSCORE(conn, arr, store)
+	case "ZREM":
+		handleZREM(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -592,4 +594,25 @@ func handleZSCORE(conn net.Conn, arr []any, store *Store) {
 		return
 	}
 	writeBulkString(conn, strconv.FormatFloat(value, 'f', -1, 64))
+}
+
+func handleZREM(conn net.Conn, arr []any, store *Store) {
+	// ZREM needs at least 3 arguments: ZREM, key, and at least one member
+	if len(arr) < 3 {
+		writeErr(conn, "wrong number of arguments for 'ZREM' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+
+	members := make([]string, 0, len(arr)-2)
+	for i := 2; i < len(arr); i++ {
+		if member, ok := asString(arr[i]); ok {
+			members = append(members, member)
+		}
+	}
+
+	// Execute removal and get the count
+	removedCount := store.ZRem(key, members)
+	writeInteger(conn, removedCount)
 }

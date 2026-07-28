@@ -295,7 +295,37 @@ func (s *Store) getZscoreValue(key, member string) (float64, bool) {
 		return 0, false
 	}
 
-	// O(1) direct map lookup instead of O(N) iteration
 	score, found := zset[member]
 	return score, found
+}
+
+// ZRem removes specified members from the sorted set at key.
+// It returns the number of members actually removed.
+func (s *Store) ZRem(key string, members []string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.cache[key]
+	if !ok {
+		return 0
+	}
+
+	zset, isZset := existing.(map[string]float64)
+	if !isZset {
+		return 0
+	}
+
+	removedCount := 0
+	for _, member := range members {
+		if _, exists := zset[member]; exists {
+			delete(zset, member)
+			removedCount++
+		}
+	}
+
+	if len(zset) == 0 {
+		delete(s.cache, key)
+	}
+
+	return removedCount
 }
