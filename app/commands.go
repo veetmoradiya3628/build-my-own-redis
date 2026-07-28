@@ -105,6 +105,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleZADD(conn, arr, store)
 	case "ZRANGE":
 		handleZRANGE(conn, arr, store)
+	case "ZRANK":
+		handleZRANK(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -542,4 +544,21 @@ func handleZRANGE(conn net.Conn, arr []any, store *Store) {
 
 	result := store.ZRange(key, start, stop)
 	writeArrayResponse(conn, result)
+}
+
+func handleZRANK(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 3 {
+		writeErr(conn, "Wrong number of arguments for 'ZRANK' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+	member, _ := asString(arr[2])
+
+	rank := store.ZRank(key, member)
+	if rank != -1 {
+		writeInteger(conn, rank)
+	} else {
+		writeNullBulk(conn)
+	}
 }

@@ -191,18 +191,19 @@ func (s *Store) ZAdd(key string, score float64, member string) int {
 	return added
 }
 
-func (s *Store) ZRange(key string, start, stop int) []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// util function
+func (s *Store) getSortedZSetNodes(key string) []ZSetNode {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	existing, ok := s.cache[key]
 	if !ok {
-		return []string{}
+		return []ZSetNode{}
 	}
 
 	zset, isZset := existing.(map[string]float64)
 	if !isZset {
-		return []string{}
+		return []ZSetNode{}
 	}
 
 	nodes := make([]ZSetNode, 0, len(zset))
@@ -210,16 +211,26 @@ func (s *Store) ZRange(key string, start, stop int) []string {
 		nodes = append(nodes, ZSetNode{member: member, score: score})
 	}
 
-	importSort := func(i, j int) bool {
+	sort.Slice(nodes, func(i, j int) bool {
 		// If scores are equal, sort lexicographically
 		if nodes[i].score == nodes[j].score {
 			return nodes[i].member < nodes[j].member
 		}
 		// Otherwise, sort by lowest score to highest
 		return nodes[i].score < nodes[j].score
-	}
+	})
 
-	sort.Slice(nodes, importSort)
+	return nodes
+}
+
+func (s *Store) ZRange(key string, start, stop int) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	nodes := s.getSortedZSetNodes(key)
+	if len(nodes) == 0 {
+		return []string{}
+	}
 
 	length := len(nodes)
 	if start < 0 {
@@ -245,4 +256,16 @@ func (s *Store) ZRange(key string, start, stop int) []string {
 	}
 
 	return result
+}
+
+func (s *Store) ZRank(key, member string) int {
+	nodes := s.getSortedZSetNodes(key)
+
+	for i, n := range nodes {
+		if n.member == member {
+			return i
+		}
+	}
+
+	return -1
 }
