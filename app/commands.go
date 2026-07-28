@@ -98,6 +98,8 @@ func handleCommand(conn net.Conn, arr []interface{}, store *Store, config Server
 		handleBLPOP(conn, arr, store)
 	case "CONFIG":
 		handleCONFIG(conn, arr, config)
+	case "KEYS":
+		handleKEYS(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -461,5 +463,31 @@ func handleCONFIG(conn net.Conn, arr []interface{}, config ServerConfig) {
 		default:
 			writeErr(conn, "unknown CONFIG subcommand")
 		}
+	}
+}
+
+// handleKEYS returns all keys matching a pattern. Currently only supports "*".
+func handleKEYS(conn net.Conn, arr []interface{}, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'KEYS' command")
+		return
+	}
+
+	pattern, ok := asString(arr[1])
+	if !ok {
+		writeErr(conn, "invalid pattern format")
+		return
+	}
+
+	// We only support the "*" pattern for this stage
+	if pattern == "*" {
+		// Call the thread-safe Keys method on the store
+		keys := store.Keys(pattern)
+
+		// Use your existing helper to write the array response
+		writeArrayResponse(conn, keys)
+	} else {
+		// Return an empty RESP array for unsupported patterns
+		conn.Write([]byte("*0\r\n"))
 	}
 }

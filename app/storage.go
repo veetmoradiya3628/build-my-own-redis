@@ -11,9 +11,14 @@ type Store struct {
 	waiters map[string][]chan string
 }
 
-func NewStore() *Store {
+func NewStore(data map[string]any) *Store {
+	// If no data was passed (e.g., RDB file didn't exist), initialize an empty map
+	if data == nil {
+		data = make(map[string]any)
+	}
+
 	return &Store{
-		cache:   make(map[string]any),
+		cache:   data, // Assign the loaded RDB data here!
 		waiters: make(map[string][]chan string),
 	}
 }
@@ -103,4 +108,21 @@ func (s *Store) CleanUpExpiredKeyWaiter(key string, waiterChan chan string) {
 			delete(s.waiters, key)
 		}
 	}
+}
+
+// Keys
+func (s *Store) Keys(pattern string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var keys []string
+
+	// Iterate through the cache map
+	for k := range s.cache {
+		// For this stage, we only care about the "*" pattern
+		if pattern == "*" {
+			keys = append(keys, k)
+		}
+	}
+	return keys
 }
