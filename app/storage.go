@@ -267,3 +267,16 @@ func (s *Store) ZRank(key, member string) int {
 
 	return -1
 }
+
+func (s *Store) ZCard(key string) int {
+	existing, ok := s.cache[key]
+	if !ok {
+		return 0
+	}
+
+	zset, isZset := existing.(map[string]float64)
+	if !isZset {
+		return 0
+	}
+	return len(zset)
+}
