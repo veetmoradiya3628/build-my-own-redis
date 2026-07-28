@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"sync"
 	"time"
 )
@@ -10,6 +11,11 @@ type Store struct {
 	mu      sync.RWMutex
 	waiters map[string][]chan string
 	expiry  map[string]time.Time
+}
+
+type ZSetNode struct {
+	member string
+	score  float64
 }
 
 func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
@@ -158,4 +164,85 @@ func (s *Store) Keys(pattern string) []string {
 		}
 	}
 	return keys
+}
+
+func (s *Store) ZAdd(key string, score float64, member string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	added := 0
+	existing, ok := s.cache[key]
+	var zset map[string]float64
+
+	if !ok {
+		zset = make(map[string]float64)
+		s.cache[key] = zset
+	} else {
+		var isZset bool
+		if zset, isZset = existing.(map[string]float64); !isZset {
+			return 0
+		}
+	}
+
+	if _, exists := zset[member]; !exists {
+		added = 1
+	}
+	zset[member] = score
+	return added
+}
+
+func (s *Store) ZRange(key string, start, stop int) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.cache[key]
+	if !ok {
+		return []string{}
+	}
+
+	zset, isZset := existing.(map[string]float64)
+	if !isZset {
+		return []string{}
+	}
+
+	nodes := make([]ZSetNode, 0, len(zset))
+	for member, score := range zset {
+		nodes = append(nodes, ZSetNode{member: member, score: score})
+	}
+
+	importSort := func(i, j int) bool {
+		// If scores are equal, sort lexicographically
+		if nodes[i].score == nodes[j].score {
+			return nodes[i].member < nodes[j].member
+		}
+		// Otherwise, sort by lowest score to highest
+		return nodes[i].score < nodes[j].score
+	}
+
+	sort.Slice(nodes, importSort)
+
+	length := len(nodes)
+	if start < 0 {
+		start = length + start
+	}
+	if stop < 0 {
+		stop = length + stop
+	}
+
+	if start < 0 {
+		start = 0
+	}
+	if stop >= length {
+		stop = length - 1
+	}
+	if start > stop || start >= length {
+		return []string{}
+	}
+
+	var result []string
+	for i := start; i <= stop; i++ {
+		result = append(result, nodes[i].member)
+	}
+
+	return result
 }

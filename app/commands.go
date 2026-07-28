@@ -7,16 +7,17 @@ import (
 	"time"
 )
 
-// Helper: safely assert interface{} to string
-func asString(v interface{}) (string, bool) {
+// Helper: safely assert any to string
+func asString(v any) (string, bool) {
 	s, ok := v.(string)
 	return s, ok
 }
 
 // Helper: write common replies
-func writeOK(conn net.Conn)              { conn.Write([]byte("+OK\r\n")) }
-func writeErr(conn net.Conn, msg string) { conn.Write([]byte("-ERR " + msg + "\r\n")) }
-func writeNullBulk(conn net.Conn)        { conn.Write([]byte("$-1\r\n")) }
+func writeOK(conn net.Conn)                 { conn.Write([]byte("+OK\r\n")) }
+func writeErr(conn net.Conn, msg string)    { conn.Write([]byte("-ERR " + msg + "\r\n")) }
+func writeNullBulk(conn net.Conn)           { conn.Write([]byte("$-1\r\n")) }
+func writeInteger(conn net.Conn, value int) { conn.Write([]byte(":" + strconv.Itoa(value) + "\r\n")) }
 
 func writeArrayResponse(conn net.Conn, items []string) error {
 	var builder strings.Builder
@@ -36,7 +37,7 @@ func writeArrayResponse(conn net.Conn, items []string) error {
 
 // parseTTL checks for EX/PX options in SET arguments and returns
 // ttl in milliseconds and true if present and valid.
-func parseTTL(arr []interface{}) (int, bool) {
+func parseTTL(arr []any) (int, bool) {
 	if len(arr) < 5 {
 		return 0, false
 	}
@@ -62,9 +63,9 @@ func parseTTL(arr []interface{}) (int, bool) {
 	return ttl, true
 }
 
-// handleCommand dispatches a parsed RESP array (as []interface{}) to
+// handleCommand dispatches a parsed RESP array (as []any) to
 // the appropriate command handler. It writes responses directly to conn.
-func handleCommand(conn net.Conn, arr []interface{}, store *Store, config ServerConfig) {
+func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) == 0 {
 		return
 	}
@@ -100,20 +101,24 @@ func handleCommand(conn net.Conn, arr []interface{}, store *Store, config Server
 		handleCONFIG(conn, arr, config)
 	case "KEYS":
 		handleKEYS(conn, arr, store)
+	case "ZADD":
+		handleZADD(conn, arr, store)
+	case "ZRANGE":
+		handleZRANGE(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
 }
 
 // handlePING replies with PONG for a PING command.
-func handlePING(conn net.Conn, arr []interface{}) {
+func handlePING(conn net.Conn, arr []any) {
 	if len(arr) == 1 {
 		conn.Write([]byte("+PONG\r\n"))
 	}
 }
 
 // handleECHO replies with the provided argument as a bulk string.
-func handleECHO(conn net.Conn, arr []interface{}) {
+func handleECHO(conn net.Conn, arr []any) {
 	if len(arr) < 2 {
 		writeNullBulk(conn)
 		return
@@ -126,7 +131,7 @@ func handleECHO(conn net.Conn, arr []interface{}) {
 }
 
 // handleSET stores a key/value pair and supports optional EX/PX TTL.
-func handleSET(conn net.Conn, arr []interface{}, store *Store) {
+func handleSET(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'SET' command")
 		return
@@ -143,7 +148,7 @@ func handleSET(conn net.Conn, arr []interface{}, store *Store) {
 }
 
 // handleGET retrieves a key and returns it as a bulk string or null.
-func handleGET(conn net.Conn, arr []interface{}, store *Store) {
+func handleGET(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'GET' command")
 		return
@@ -156,7 +161,7 @@ func handleGET(conn net.Conn, arr []interface{}, store *Store) {
 	}
 }
 
-func handleLPUSH(conn net.Conn, arr []interface{}, store *Store) {
+func handleLPUSH(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'LPUSH' command")
 		return
@@ -204,7 +209,7 @@ func handleLPUSH(conn net.Conn, arr []interface{}, store *Store) {
 	_, _ = conn.Write([]byte(":" + strconv.Itoa(expectedLen) + "\r\n"))
 }
 
-func handleRPUSH(conn net.Conn, arr []interface{}, store *Store) {
+func handleRPUSH(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'RPUSH' command")
 		return
@@ -252,7 +257,7 @@ func handleRPUSH(conn net.Conn, arr []interface{}, store *Store) {
 	_, _ = conn.Write([]byte(":" + strconv.Itoa(expectedLen) + "\r\n"))
 }
 
-func handleLRANGE(conn net.Conn, arr []interface{}, store *Store) {
+func handleLRANGE(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 4 {
 		writeErr(conn, "wrong number of arguments for 'LRANGE' command")
 		return
@@ -297,7 +302,7 @@ func handleLRANGE(conn net.Conn, arr []interface{}, store *Store) {
 	}
 }
 
-func handleLLEN(conn net.Conn, arr []interface{}, store *Store) {
+func handleLLEN(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'LLEN' command")
 		return
@@ -315,7 +320,7 @@ func handleLLEN(conn net.Conn, arr []interface{}, store *Store) {
 	}
 }
 
-func handleLPOP(conn net.Conn, arr []interface{}, store *Store) {
+func handleLPOP(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'LPOP' command")
 		return
@@ -353,7 +358,7 @@ func handleLPOP(conn net.Conn, arr []interface{}, store *Store) {
 	}
 }
 
-func handleRPOP(conn net.Conn, arr []interface{}, store *Store) {
+func handleRPOP(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'RPOP' command")
 		return
@@ -377,7 +382,7 @@ func handleRPOP(conn net.Conn, arr []interface{}, store *Store) {
 }
 
 // timeout is always 0 as of now so clean up logic not added for waiters
-func handleBLPOP(conn net.Conn, arr []interface{}, store *Store) {
+func handleBLPOP(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'BLPOP' command")
 		return
@@ -427,7 +432,7 @@ func handleBLPOP(conn net.Conn, arr []interface{}, store *Store) {
 	}
 }
 
-func handleCONFIG(conn net.Conn, arr []interface{}, config ServerConfig) {
+func handleCONFIG(conn net.Conn, arr []any, config ServerConfig) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'CONFIG' command")
 		return // Added return to prevent out-of-bounds panics
@@ -467,7 +472,7 @@ func handleCONFIG(conn net.Conn, arr []interface{}, config ServerConfig) {
 }
 
 // handleKEYS returns all keys matching a pattern. Currently only supports "*".
-func handleKEYS(conn net.Conn, arr []interface{}, store *Store) {
+func handleKEYS(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'KEYS' command")
 		return
@@ -490,4 +495,51 @@ func handleKEYS(conn net.Conn, arr []interface{}, store *Store) {
 		// Return an empty RESP array for unsupported patterns
 		conn.Write([]byte("*0\r\n"))
 	}
+}
+
+func handleZADD(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 4 || len(arr)%2 != 0 {
+		writeErr(conn, "wrong number of arguments for 'ZADD' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+	addedCount := 0
+
+	for i := 2; i < len(arr); i += 2 {
+		scoreStr, _ := asString(arr[i])
+		member, _ := asString(arr[i+1])
+
+		// Parse the score into a float64
+		score, err := strconv.ParseFloat(scoreStr, 64)
+		if err != nil {
+			writeErr(conn, "ERR value is not a valid float")
+			return
+		}
+
+		addedCount += store.ZAdd(key, score, member)
+	}
+	writeInteger(conn, addedCount)
+}
+
+func handleZRANGE(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 4 {
+		writeErr(conn, "wrong number of arguments for 'ZRANGE' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+	startStr, _ := asString(arr[2])
+	stopStr, _ := asString(arr[3])
+
+	// Parse indices
+	start, err1 := strconv.Atoi(startStr)
+	stop, err2 := strconv.Atoi(stopStr)
+	if err1 != nil || err2 != nil {
+		writeErr(conn, "ERR value is not an integer or out of range")
+		return
+	}
+
+	result := store.ZRange(key, start, stop)
+	writeArrayResponse(conn, result)
 }

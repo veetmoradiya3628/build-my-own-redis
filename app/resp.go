@@ -9,7 +9,7 @@ import (
 )
 
 // format: *<number of elements>\r\n<element1><element2>...<elementN>
-func handleRESPArray(reader *bufio.Reader) (interface{}, error) {
+func handleRESPArray(reader *bufio.Reader) (any, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -27,7 +27,7 @@ func handleRESPArray(reader *bufio.Reader) (interface{}, error) {
 	}
 
 	// Recursively parse each element in the array
-	var array []interface{}
+	var array []any
 	for i := 0; i < count; i++ {
 		val, err := ParseRESP(reader)
 		if err != nil {
@@ -42,7 +42,7 @@ func handleRESPArray(reader *bufio.Reader) (interface{}, error) {
 // It reads the length header, then reads that many bytes and consumes
 // the trailing CRLF. Returns a Go string or nil for a Null Bulk String.
 // format: $<number of bytes>\r\n<bytes>\r\n
-func handleRESPBulkString(reader *bufio.Reader) (interface{}, error) {
+func handleRESPBulkString(reader *bufio.Reader) (any, error) {
 	// Read length line (e.g., "3\r\n")
 	line, err := reader.ReadString('\n')
 	if err != nil {
@@ -69,7 +69,7 @@ func handleRESPBulkString(reader *bufio.Reader) (interface{}, error) {
 // handleRESPSimpleString reads a RESP Simple String ("+...") and returns
 // it as a Go string (without CRLF).
 // format: +<string>\r\n
-func handleRESPSimpleString(reader *bufio.Reader) (interface{}, error) {
+func handleRESPSimpleString(reader *bufio.Reader) (any, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func handleRESPSimpleString(reader *bufio.Reader) (interface{}, error) {
 
 // handleRESPError reads a RESP Error ("-...") and returns it as an error.
 // format: -<error message>\r\n
-func handleRESPError(reader *bufio.Reader) (interface{}, error) {
+func handleRESPError(reader *bufio.Reader) (any, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -90,7 +90,7 @@ func handleRESPError(reader *bufio.Reader) (interface{}, error) {
 // handleRESPInteger reads a RESP Integer (":...\r\n") and returns it
 // as an int.
 // format: :<number>\r\n
-func handleRESPInteger(reader *bufio.Reader) (interface{}, error) {
+func handleRESPInteger(reader *bufio.Reader) (any, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -103,7 +103,7 @@ func handleRESPInteger(reader *bufio.Reader) (interface{}, error) {
 }
 
 // ParseRESP parses a RESP value from the reader.
-func ParseRESP(reader *bufio.Reader) (interface{}, error) {
+func ParseRESP(reader *bufio.Reader) (any, error) {
 	prefix, err := reader.ReadByte()
 	if err != nil {
 		return nil, err

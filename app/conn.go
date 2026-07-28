@@ -24,7 +24,7 @@ func handleConnection(conn net.Conn, store *Store, config ServerConfig) {
 			fmt.Println("parse error:", err)
 			break
 		}
-		arr, ok := val.([]interface{})
+		arr, ok := val.([]any)
 		if !ok || len(arr) == 0 {
 			continue
 		}
