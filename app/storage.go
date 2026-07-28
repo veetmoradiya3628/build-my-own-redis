@@ -280,3 +280,22 @@ func (s *Store) ZCard(key string) int {
 	}
 	return len(zset)
 }
+
+func (s *Store) getZscoreValue(key, member string) (float64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	existing, ok := s.cache[key]
+	if !ok {
+		return 0, false
+	}
+
+	zset, isZset := existing.(map[string]float64)
+	if !isZset {
+		return 0, false
+	}
+
+	// O(1) direct map lookup instead of O(N) iteration
+	score, found := zset[member]
+	return score, found
+}

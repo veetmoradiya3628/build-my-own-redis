@@ -109,6 +109,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleZRANK(conn, arr, store)
 	case "ZCARD":
 		handleZCARD(conn, arr, store)
+	case "ZSCORE":
+		handleZSCORE(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -564,6 +566,7 @@ func handleZRANK(conn net.Conn, arr []any, store *Store) {
 		writeNullBulk(conn)
 	}
 }
+
 func handleZCARD(conn net.Conn, arr []any, store *Store) {
 	if len(arr) < 1 {
 		writeErr(conn, "Wrong number of arguments for 'ZCARD' command")
@@ -573,4 +576,20 @@ func handleZCARD(conn net.Conn, arr []any, store *Store) {
 	key, _ := asString(arr[1])
 	cnt := store.ZCard(key)
 	writeInteger(conn, cnt)
+}
+
+func handleZSCORE(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 3 {
+		writeErr(conn, "Wrong number of arguments for 'ZSCORE' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+	member, _ := asString(arr[2])
+	value, found := store.getZscoreValue(key, member)
+	if !found {
+		writeNullBulk(conn)
+		return
+	}
+	writeBulkString(conn, strconv.FormatFloat(value, 'f', -1, 64))
 }
