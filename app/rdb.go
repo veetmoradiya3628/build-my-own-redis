@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"time"
 )
 
 // parsing code for RDB file
@@ -84,15 +85,15 @@ func (p *RDBParser) readString() (string, error) {
 	return string(buf), nil
 }
 
-// Parse extracts all key-value pairs from the RDB database section
-func (p *RDBParser) Parse() (map[string]any, error) {
-	// Initialize the map using 'any'
+// Update the Parse function signature and implementation
+func (p *RDBParser) Parse() (map[string]any, map[string]time.Time, error) {
 	store := make(map[string]any)
+	expiry := make(map[string]time.Time) // New expiry map
 
 	// Skip 9-byte header ("REDIS0011")
 	header := make([]byte, 9)
 	if _, err := io.ReadFull(p.r, header); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for {
@@ -101,107 +102,111 @@ func (p *RDBParser) Parse() (map[string]any, error) {
 			if err == io.EOF {
 				break
 			}
-			return nil, err
+			return nil, nil, err
 		}
 
 		switch b {
 		case 0xFA: // Metadata subsection
 			if _, err := p.readString(); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if _, err := p.readString(); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		case 0xFE: // Database subsection
 			if _, _, err := p.readLength(); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		case 0xFB: // Hash table sizes
 			if _, _, err := p.readLength(); err != nil {
-				return nil, err
+				return nil, nil, err
 			} // Total keys
 			if _, _, err := p.readLength(); err != nil {
-				return nil, err
+				return nil, nil, err
 			} // Expire keys
 		case 0xFC: // Millisecond expire timestamp
-			if _, err := io.ReadFull(p.r, make([]byte, 8)); err != nil {
-				return nil, err
+			buf := make([]byte, 8)
+			if _, err := io.ReadFull(p.r, buf); err != nil {
+				return nil, nil, err
 			}
+			expiryMs := int64(binary.LittleEndian.Uint64(buf))
+
 			if _, err := p.readByte(); err != nil {
-				return nil, err
+				return nil, nil, err
 			} // value type
 
 			key, err := p.readString()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
-			// Capture the value
 			val, err := p.readString()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			store[key] = val
+			expiry[key] = time.UnixMilli(expiryMs) // Store timestamp
 
 		case 0xFD: // Second expire timestamp
-			if _, err := io.ReadFull(p.r, make([]byte, 4)); err != nil {
-				return nil, err
+			buf := make([]byte, 4)
+			if _, err := io.ReadFull(p.r, buf); err != nil {
+				return nil, nil, err
 			}
+			expirySec := int64(binary.LittleEndian.Uint32(buf))
+
 			if _, err := p.readByte(); err != nil {
-				return nil, err
+				return nil, nil, err
 			} // value type
 
 			key, err := p.readString()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
-			// Capture the value
 			val, err := p.readString()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			store[key] = val
+			expiry[key] = time.Unix(expirySec, 0) // Store timestamp
 
 		case 0xFF: // End of file
-			return store, nil
+			return store, expiry, nil
 
-		default: // Value type flag (start of a key-value pair without expiry)
-			// 'b' is the value type flag (e.g., 0x00 for string)
+		default: // Value type flag
 			key, err := p.readString()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
-			// Capture the value
 			val, err := p.readString()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			store[key] = val
 		}
 	}
-	return store, nil
+	return store, expiry, nil
 }
 
-// LoadRDB parses the RDB file and returns it as a map[string]any
-func LoadRDB(filepath string) map[string]any {
+// Update LoadRDB to return both maps
+func LoadRDB(filepath string) (map[string]any, map[string]time.Time) {
 	f, err := os.Open(filepath)
 	if err != nil {
-		// File doesn't exist, return an empty map
-		return make(map[string]any)
+		return make(map[string]any), make(map[string]time.Time)
 	}
 	defer f.Close()
 
 	parser := &RDBParser{r: bufio.NewReader(f)}
-	store, err := parser.Parse()
+	store, expiry, err := parser.Parse()
 
 	if err != nil {
 		fmt.Printf("Error parsing RDB: %v\n", err)
 		if store == nil {
 			store = make(map[string]any)
+			expiry = make(map[string]time.Time)
 		}
 	}
 
-	return store
+	return store, expiry
 }

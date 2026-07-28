@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type ServerConfig struct {
@@ -29,20 +30,21 @@ func main() {
 
 	// 1. Check if both flags are provided
 	var initialData map[string]any
+	var initialExpiry map[string]time.Time
+
 	if config.dir != "" && config.dbfilename != "" {
-		// Construct the full path securely
 		rdbPath := filepath.Join(config.dir, config.dbfilename)
 		slog.Info("Loading RDB file", "path", rdbPath)
 
-		// Use the LoadRDB function we built earlier
-		initialData = LoadRDB(rdbPath)
+		// Load both maps
+		initialData, initialExpiry = LoadRDB(rdbPath)
 	} else {
-		// No flags provided, start with an empty map
 		initialData = make(map[string]any)
+		initialExpiry = make(map[string]time.Time)
 	}
 
-	// We need to update your NewStore function to accept this initial map
-	store := NewStore(initialData)
+	// Update NewStore call
+	store := NewStore(initialData, initialExpiry)
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {

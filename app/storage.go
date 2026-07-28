@@ -9,16 +9,20 @@ type Store struct {
 	cache   map[string]any
 	mu      sync.RWMutex
 	waiters map[string][]chan string
+	expiry  map[string]time.Time
 }
 
-func NewStore(data map[string]any) *Store {
-	// If no data was passed (e.g., RDB file didn't exist), initialize an empty map
+func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
 	if data == nil {
 		data = make(map[string]any)
 	}
+	if expiry == nil {
+		expiry = make(map[string]time.Time)
+	}
 
 	return &Store{
-		cache:   data, // Assign the loaded RDB data here!
+		cache:   data,
+		expiry:  expiry, // Initialize with RDB expiry data
 		waiters: make(map[string][]chan string),
 	}
 }
@@ -27,17 +31,33 @@ func NewStore(data map[string]any) *Store {
 func (s *Store) Set(key string, value any) {
 	s.mu.Lock()
 	s.cache[key] = value
+	delete(s.expiry, key)
 	s.mu.Unlock()
 }
 
 // SetWithTTL stores a key/value pair and deletes it after ttlMillis milliseconds.
 func (s *Store) SetWithTTL(key string, value any, ttlMillis int) {
 	s.Set(key, value)
+
+	// Calculate and store the expiration time in our new map
+	s.mu.Lock()
+	expirationTime := time.Now().Add(time.Duration(ttlMillis) * time.Millisecond)
+	s.expiry[key] = expirationTime
+	s.mu.Unlock()
+
+	// active cleanup goroutine, but fix the locking and add a safety check
 	go func() {
 		time.Sleep(time.Duration(ttlMillis) * time.Millisecond)
+
 		s.mu.Lock()
-		delete(s.cache, key)
-		s.mu.Unlock()
+		defer s.mu.Unlock()
+
+		// Double-check that the key hasn't been updated with a NEW expiration time
+		// while this goroutine was sleeping
+		if expTime, exists := s.expiry[key]; exists && !time.Now().Before(expTime) {
+			delete(s.cache, key)
+			delete(s.expiry, key)
+		}
 	}()
 }
 
@@ -45,7 +65,20 @@ func (s *Store) SetWithTTL(key string, value any, ttlMillis int) {
 func (s *Store) Get(key string) (any, bool) {
 	s.mu.RLock()
 	v, ok := s.cache[key]
+	expTime, hasExpiry := s.expiry[key]
 	s.mu.RUnlock()
+
+	// If the key exists and has an expiration, check if it's expired
+	if ok && hasExpiry {
+		if time.Now().After(expTime) {
+			// Key has expired, actively delete it and return false
+			s.mu.Lock()
+			delete(s.cache, key)
+			delete(s.expiry, key)
+			s.mu.Unlock()
+			return nil, false
+		}
+	}
 	return v, ok
 }
 
