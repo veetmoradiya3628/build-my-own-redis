@@ -224,8 +224,6 @@ func (s *Store) getSortedZSetNodes(key string) []ZSetNode {
 }
 
 func (s *Store) ZRange(key string, start, stop int) []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	nodes := s.getSortedZSetNodes(key)
 	if len(nodes) == 0 {
