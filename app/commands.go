@@ -128,6 +128,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleZREM(conn, arr, store)
 	case "SUBSCRIBE":
 		handleSUBSCRIBE(conn, arr, store)
+	case "PUBLISH":
+		handlePUBLISH(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -654,4 +656,17 @@ func handleSUBSCRIBE(conn net.Conn, arr []any, store *Store) {
 		resp := fmt.Sprintf("*3\r\n$9\r\nsubscribe\r\n$%d\r\n%s\r\n:%d\r\n", len(channel), channel, subCount)
 		conn.Write([]byte(resp))
 	}
+}
+
+func handlePUBLISH(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'PUBLISH' command")
+		return
+	}
+
+	channelName, _ := asString(arr[1])
+	messageContent, _ := asString(arr[2])
+
+	publishCnt := store.PublishMessageOnChannel(channelName, messageContent)
+	writeInteger(conn, publishCnt)
 }

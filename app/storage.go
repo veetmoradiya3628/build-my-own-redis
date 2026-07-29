@@ -368,3 +368,18 @@ func (s *Store) IsSubscribed(conn net.Conn) bool {
 	channels, exists := s.clientSubscriptions[conn]
 	return exists && len(channels) > 0
 }
+
+func (s *Store) PublishMessageOnChannel(channel, message string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	subscribers, exists := s.pubsub[channel]
+
+	if !exists {
+		return 0
+	}
+
+	// publish later
+
+	return len(subscribers)
+}
