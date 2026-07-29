@@ -360,3 +360,11 @@ func (s *Store) RemoveSubscriber(conn net.Conn) {
 		delete(subscribers, conn)
 	}
 }
+
+func (s *Store) IsSubscribed(conn net.Conn) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	channels, exists := s.clientSubscriptions[conn]
+	return exists && len(channels) > 0
+}

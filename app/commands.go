@@ -75,6 +75,18 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		return
 	}
 	cmd := strings.ToUpper(cmdRaw)
+
+	// Intercept commands if the client is in Subscribed mode
+	if store.IsSubscribed(conn) {
+		switch cmd {
+		case "SUBSCRIBE", "UNSUBSCRIBE", "PSUBSCRIBE", "PUNSUBSCRIBE", "PING", "QUIT", "RESET":
+		default:
+			errMsg := "Can't execute '" + strings.ToLower(cmd) + "': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context"
+			writeErr(conn, errMsg)
+			return
+		}
+	}
+
 	switch cmd {
 	case "PING":
 		handlePING(conn, arr)
