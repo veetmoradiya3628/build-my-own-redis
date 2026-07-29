@@ -632,10 +632,10 @@ func handleSUBSCRIBE(conn net.Conn, arr []any, store *Store) {
 			continue
 		}
 
-		store.Subscribe(conn, channel)
+		subCount := store.Subscribe(conn, channel)
 
 		// format : *3\r\n$9\r\nsubscribe\r\n$<len(channel)>\r\n<channel>\r\n:<i>\r\n
-		resp := fmt.Sprintf("*3\r\n$9\r\nsubscribe\r\n$%d\r\n%s\r\n:%d\r\n", len(channel), channel, i)
+		resp := fmt.Sprintf("*3\r\n$9\r\nsubscribe\r\n$%d\r\n%s\r\n:%d\r\n", len(channel), channel, subCount)
 		conn.Write([]byte(resp))
 	}
 }

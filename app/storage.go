@@ -8,11 +8,12 @@ import (
 )
 
 type Store struct {
-	cache   map[string]any
-	mu      sync.RWMutex
-	waiters map[string][]chan string
-	expiry  map[string]time.Time
-	pubsub  map[string]map[net.Conn]struct{}
+	cache               map[string]any
+	mu                  sync.RWMutex
+	waiters             map[string][]chan string
+	expiry              map[string]time.Time
+	pubsub              map[string]map[net.Conn]struct{}
+	clientSubscriptions map[net.Conn]map[string]struct{}
 }
 
 type ZSetNode struct {
@@ -29,10 +30,11 @@ func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
 	}
 
 	return &Store{
-		cache:   data,
-		expiry:  expiry, // Initialize with RDB expiry data
-		waiters: make(map[string][]chan string),
-		pubsub:  make(map[string]map[net.Conn]struct{}),
+		cache:               data,
+		expiry:              expiry, // Initialize with RDB expiry data
+		waiters:             make(map[string][]chan string),
+		pubsub:              make(map[string]map[net.Conn]struct{}),
+		clientSubscriptions: make(map[net.Conn]map[string]struct{}),
 	}
 }
 
@@ -333,7 +335,7 @@ func (s *Store) ZRem(key string, members []string) int {
 	return removedCount
 }
 
-func (s *Store) Subscribe(conn net.Conn, channel string) {
+func (s *Store) Subscribe(conn net.Conn, channel string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -341,6 +343,13 @@ func (s *Store) Subscribe(conn net.Conn, channel string) {
 		s.pubsub[channel] = make(map[net.Conn]struct{})
 	}
 	s.pubsub[channel][conn] = struct{}{}
+
+	if s.clientSubscriptions[conn] == nil {
+		s.clientSubscriptions[conn] = make(map[string]struct{})
+	}
+	s.clientSubscriptions[conn][channel] = struct{}{}
+
+	return len(s.clientSubscriptions[conn])
 }
 
 func (s *Store) RemoveSubscriber(conn net.Conn) {
