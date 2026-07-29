@@ -379,7 +379,12 @@ func (s *Store) PublishMessageOnChannel(channel, message string) int {
 		return 0
 	}
 
-	// publish later
+	// publish to subscribers
+	for subscriber := range subscribers {
+		go func(subscriber net.Conn) {
+			writeArrayResponse(subscriber, []string{"message", channel, message})
+		}(subscriber)
+	}
 
 	return len(subscribers)
 }
