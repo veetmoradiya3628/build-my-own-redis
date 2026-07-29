@@ -352,6 +352,28 @@ func (s *Store) Subscribe(conn net.Conn, channel string) int {
 	return len(s.clientSubscriptions[conn])
 }
 
+func (s *Store) Unsubscribe(conn net.Conn, channel string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if subscribers, exists := s.pubsub[channel]; exists {
+		delete(subscribers, conn)
+		if len(subscribers) == 0 {
+			delete(s.pubsub, channel)
+		}
+	}
+
+	if channels, exists := s.clientSubscriptions[conn]; exists {
+		delete(channels, channel)
+		remainingCount := len(channels)
+		if remainingCount == 0 {
+			delete(s.clientSubscriptions, conn)
+		}
+		return remainingCount
+	}
+	return 0
+}
+
 func (s *Store) RemoveSubscriber(conn net.Conn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

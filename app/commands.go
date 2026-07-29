@@ -130,6 +130,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleSUBSCRIBE(conn, arr, store)
 	case "PUBLISH":
 		handlePUBLISH(conn, arr, store)
+	case "UNSUBSCRIBE":
+		handleUNSUBSCRIBE(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -651,6 +653,26 @@ func handleSUBSCRIBE(conn net.Conn, arr []any, store *Store) {
 		}
 
 		subCount := store.Subscribe(conn, channel)
+
+		// format : *3\r\n$9\r\nsubscribe\r\n$<len(channel)>\r\n<channel>\r\n:<i>\r\n
+		resp := fmt.Sprintf("*3\r\n$9\r\nsubscribe\r\n$%d\r\n%s\r\n:%d\r\n", len(channel), channel, subCount)
+		conn.Write([]byte(resp))
+	}
+}
+
+func handleUNSUBSCRIBE(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'UNSUBSCRIBE' command")
+		return
+	}
+
+	for i := 1; i < len(arr); i++ {
+		channel, ok := asString(arr[i])
+		if !ok {
+			continue
+		}
+
+		subCount := store.Unsubscribe(conn, channel)
 
 		// format : *3\r\n$9\r\nsubscribe\r\n$<len(channel)>\r\n<channel>\r\n:<i>\r\n
 		resp := fmt.Sprintf("*3\r\n$9\r\nsubscribe\r\n$%d\r\n%s\r\n:%d\r\n", len(channel), channel, subCount)
