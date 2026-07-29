@@ -89,7 +89,7 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 
 	switch cmd {
 	case "PING":
-		handlePING(conn, arr)
+		handlePING(conn, arr, store)
 	case "ECHO":
 		handleECHO(conn, arr)
 	case "SET":
@@ -134,9 +134,13 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 }
 
 // handlePING replies with PONG for a PING command.
-func handlePING(conn net.Conn, arr []any) {
+func handlePING(conn net.Conn, arr []any, store *Store) {
 	if len(arr) == 1 {
-		conn.Write([]byte("+PONG\r\n"))
+		if store.IsSubscribed(conn) {
+			writeArrayResponse(conn, []string{"pong", ""})
+		} else {
+			conn.Write([]byte("+PONG\r\n"))
+		}
 	}
 }
 
