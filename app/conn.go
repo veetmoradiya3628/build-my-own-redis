@@ -17,6 +17,8 @@ func writeBulkString(conn net.Conn, s string) error {
 // mixing command logic here.
 func handleConnection(conn net.Conn, store *Store, config ServerConfig) {
 	defer conn.Close()
+	defer store.RemoveSubscriber(conn)
+
 	reader := bufio.NewReader(conn)
 	for {
 		val, err := ParseRESP(reader)

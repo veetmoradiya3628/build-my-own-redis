@@ -113,6 +113,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleZSCORE(conn, arr, store)
 	case "ZREM":
 		handleZREM(conn, arr, store)
+	case "SUBSCRIBE":
+		handleSUBSCRIBE(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -615,4 +617,22 @@ func handleZREM(conn net.Conn, arr []any, store *Store) {
 	// Execute removal and get the count
 	removedCount := store.ZRem(key, members)
 	writeInteger(conn, removedCount)
+}
+
+func handleSUBSCRIBE(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'SUBSCRIBE' command")
+		return
+	}
+
+	for i := 1; i < len(arr); i++ {
+		channel, ok := asString(arr[i])
+		if !ok {
+			continue
+		}
+
+		subscribercnt := store.Subscribe(conn, channel)
+
+		writeArrayResponse(conn, []string{"subscribe", channel, strconv.Itoa(subscribercnt)})
+	}
 }
