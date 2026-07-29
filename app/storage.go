@@ -333,7 +333,7 @@ func (s *Store) ZRem(key string, members []string) int {
 	return removedCount
 }
 
-func (s *Store) Subscribe(conn net.Conn, channel string) int {
+func (s *Store) Subscribe(conn net.Conn, channel string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -341,7 +341,6 @@ func (s *Store) Subscribe(conn net.Conn, channel string) int {
 		s.pubsub[channel] = make(map[net.Conn]struct{})
 	}
 	s.pubsub[channel][conn] = struct{}{}
-	return len(s.pubsub[channel])
 }
 
 func (s *Store) RemoveSubscriber(conn net.Conn) {

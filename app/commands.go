@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -631,8 +632,10 @@ func handleSUBSCRIBE(conn net.Conn, arr []any, store *Store) {
 			continue
 		}
 
-		subscribercnt := store.Subscribe(conn, channel)
+		store.Subscribe(conn, channel)
 
-		writeArrayResponse(conn, []string{"subscribe", channel, strconv.Itoa(subscribercnt)})
+		// format : *3\r\n$9\r\nsubscribe\r\n$<len(channel)>\r\n<channel>\r\n:<i>\r\n
+		resp := fmt.Sprintf("*3\r\n$9\r\nsubscribe\r\n$%d\r\n%s\r\n:%d\r\n", len(channel), channel, i)
+		conn.Write([]byte(resp))
 	}
 }
