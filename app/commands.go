@@ -775,7 +775,7 @@ func handleDISCARD(conn net.Conn, arr []any, store *Store){
 		return
 	}
 
-	if store.IsInTx(conn) {
+	if !store.IsInTx(conn) {
 		writeErr(conn, "DISCARD without MULTI")
 		return
 	}
