@@ -151,6 +151,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleMULTI(conn, arr, store)
 	case "EXEC":
 		handleEXEC(conn, arr, store, config)
+	case "DISCARD":
+		handleDISCARD(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -765,4 +767,19 @@ func handleEXEC(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	for _, cmdArr := range queue {
 		handleCommand(conn, cmdArr, store, config)
 	}
+}
+
+func handleDISCARD(conn net.Conn, arr []any, store *Store){
+	if len(arr) != 1 {
+		writeErr(conn, "wrong number of arguments for 'DISCARD' command")
+		return
+	}
+
+	if store.IsInTx(conn) {
+		writeErr(conn, "DISCARD without MULTI")
+		return
+	}
+
+	store.ClearTx(conn)
+	writeOK(conn)
 }
