@@ -486,3 +486,17 @@ func (s *Store) ClearTx(conn net.Conn) {
 	
 	delete(s.transactions, conn)
 }
+// GetAndClearTx retrieves the transaction queue and clears the transaction state for a connection.
+// It returns the queue and a boolean indicating if the connection was in a transaction.
+func (s *Store) GetAndClearTx(conn net.Conn) ([][]any, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	queue, exists := s.transactions[conn]
+	if exists {
+		// Clear the transaction state
+		delete(s.transactions, conn)
+	}
+	
+	return queue, exists
+}

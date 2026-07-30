@@ -748,13 +748,16 @@ func handleEXEC(conn net.Conn, arr []any, store *Store) {
 		writeErr(conn, "wrong number of arguments for 'EXEC' command")
 		return
 	}
+	queue, wasInTx := store.GetAndClearTx(conn)
 
 	// Check if the connection is currently in a transaction block
-	if !store.IsInTx(conn) {
-		writeErr(conn, "EXEC without MULTI")
+	if !wasInTx {
+		writeErr(conn, "ERR EXEC without MULTI")
 		return
 	}
 
-	// Note: The logic for actually executing queued commands 
-	// when IsInTx is true will be added in the next stage!
+	if len(queue) == 0 {
+		conn.Write([]byte("*0\r\n"))
+		return
+	}
 }
