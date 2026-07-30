@@ -150,7 +150,7 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	case "MULTI":
 		handleMULTI(conn, arr, store)
 	case "EXEC":
-		handleEXEC(conn, arr, store)
+		handleEXEC(conn, arr, store, config)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -743,7 +743,7 @@ func handleMULTI(conn net.Conn, arr []any, store *Store) {
 }
 // handleEXEC executes queued commands.
 // For this stage, it only handles the error case when MULTI hasn't been called.
-func handleEXEC(conn net.Conn, arr []any, store *Store) {
+func handleEXEC(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) != 1 {
 		writeErr(conn, "wrong number of arguments for 'EXEC' command")
 		return
@@ -759,5 +759,10 @@ func handleEXEC(conn net.Conn, arr []any, store *Store) {
 	if len(queue) == 0 {
 		conn.Write([]byte("*0\r\n"))
 		return
+	}
+
+	conn.Write([]byte("*" + strconv.Itoa(len(queue)) + "\r\n"))
+	for _, cmdArr := range queue {
+		handleCommand(conn, cmdArr, store, config)
 	}
 }
