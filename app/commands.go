@@ -752,7 +752,7 @@ func handleEXEC(conn net.Conn, arr []any, store *Store) {
 
 	// Check if the connection is currently in a transaction block
 	if !wasInTx {
-		writeErr(conn, "ERR EXEC without MULTI")
+		writeErr(conn, "EXEC without MULTI")
 		return
 	}
 
