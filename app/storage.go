@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -409,4 +411,34 @@ func (s *Store) PublishMessageOnChannel(channel, message string) int {
 	}
 
 	return len(subscribers)
+}
+
+func (s *Store) Incr(key string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, ok := s.cache[key]
+	if !ok {
+		// Key doesn't exist, set to 1 directly
+		s.cache[key] = "1"
+		return 1, nil
+	}
+
+	// Key exists, ensure it's a string since handleSET stores values as strings
+	strVal, isString := existing.(string)
+	if !isString {
+		return 0, errors.New("invalid type")
+	}
+
+	// Parse the string to an integer
+	intVal, err := strconv.Atoi(strVal)
+	if err != nil {
+		return 0, errors.New("not an integer")
+	}
+
+	// Increment and store back as a string
+	intVal++
+	s.cache[key] = strconv.Itoa(intVal)
+
+	return intVal, nil
 }

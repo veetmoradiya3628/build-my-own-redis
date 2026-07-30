@@ -132,6 +132,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handlePUBLISH(conn, arr, store)
 	case "UNSUBSCRIBE":
 		handleUNSUBSCRIBE(conn, arr, store)
+	case "INCR":
+		handleINCR(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -691,4 +693,20 @@ func handlePUBLISH(conn net.Conn, arr []any, store *Store) {
 
 	publishCnt := store.PublishMessageOnChannel(channelName, messageContent)
 	writeInteger(conn, publishCnt)
+}
+func handleINCR(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'INCR' command")
+		return
+	}
+	key, _ := asString(arr[1])
+
+	val, err := store.Incr(key)
+	if err != nil {
+		// Standard Redis error for invalid integer operations
+		writeErr(conn, "ERR value is not an integer or out of range")
+		return
+	}
+
+	writeInteger(conn, val)
 }
