@@ -704,7 +704,7 @@ func handleINCR(conn net.Conn, arr []any, store *Store) {
 	val, err := store.Incr(key)
 	if err != nil {
 		// Standard Redis error for invalid integer operations
-		writeErr(conn, "ERR value is not an integer or out of range")
+		writeErr(conn, "value is not an integer or out of range")
 		return
 	}
 
