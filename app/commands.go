@@ -87,6 +87,19 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		}
 	}
 
+	// Intercept commands if the client is in a Transaction (MULTI) block
+	if store.IsInTx(conn) {
+		switch cmd {
+		case "EXEC", "DISCARD", "MULTI", "QUIT":
+			// Let these commands pass through to be handled normally
+		default:
+			// Queue the command and return +QUEUED
+			store.QueueCommand(conn, arr)
+			conn.Write([]byte("+QUEUED\r\n"))
+			return
+		}
+	}
+
 	switch cmd {
 	case "PING":
 		handlePING(conn, arr, store)
@@ -134,6 +147,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleUNSUBSCRIBE(conn, arr, store)
 	case "INCR":
 		handleINCR(conn, arr, store)
+	case "MULTI":
+		handleMULTI(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -709,4 +724,18 @@ func handleINCR(conn net.Conn, arr []any, store *Store) {
 	}
 
 	writeInteger(conn, val)
+}
+func handleMULTI(conn net.Conn, arr []any, store *Store) {
+	if len(arr) != 1 {
+		writeErr(conn, "wrong number of arguments for 'MULTI' command")
+		return
+	}
+	
+	// Attempt to start the transaction
+	if !store.StartTx(conn) {
+		writeErr(conn, "ERR MULTI calls can not be nested")
+		return
+	}
+	
+	writeOK(conn)
 }

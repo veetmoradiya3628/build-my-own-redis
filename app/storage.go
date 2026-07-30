@@ -16,6 +16,7 @@ type Store struct {
 	expiry              map[string]time.Time
 	pubsub              map[string]map[net.Conn]struct{}
 	clientSubscriptions map[net.Conn]map[string]struct{}
+	transactions 		map[net.Conn][][]any
 }
 
 type ZSetNode struct {
@@ -37,6 +38,7 @@ func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
 		waiters:             make(map[string][]chan string),
 		pubsub:              make(map[string]map[net.Conn]struct{}),
 		clientSubscriptions: make(map[net.Conn]map[string]struct{}),
+		transactions:        make(map[net.Conn][][]any),
 	}
 }
 
@@ -441,4 +443,46 @@ func (s *Store) Incr(key string) (int, error) {
 	s.cache[key] = strconv.Itoa(intVal)
 
 	return intVal, nil
+}
+// Transaction commands
+// StartTx marks a connection as being in a transaction block.
+// Returns false if the connection is already in a transaction.
+func (s *Store) StartTx(conn net.Conn) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if _, exists := s.transactions[conn]; exists {
+		return false // Already in a transaction
+	}
+	
+	// Initialize an empty queue for this connection
+	s.transactions[conn] = make([][]any, 0)
+	return true
+}
+
+// QueueCommand adds a command array to the connection's transaction queue.
+func (s *Store) QueueCommand(conn net.Conn, arr []any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if queue, exists := s.transactions[conn]; exists {
+		s.transactions[conn] = append(queue, arr)
+	}
+}
+
+// IsInTx checks if a connection is currently in a transaction block.
+func (s *Store) IsInTx(conn net.Conn) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	_, exists := s.transactions[conn]
+	return exists
+}
+
+// ClearTx removes the transaction state for a connection.
+func (s *Store) ClearTx(conn net.Conn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	delete(s.transactions, conn)
 }
