@@ -149,6 +149,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleINCR(conn, arr, store)
 	case "MULTI":
 		handleMULTI(conn, arr, store)
+	case "EXEC":
+		handleEXEC(conn, arr, store)
 	default:
 		writeErr(conn, "unknown command")
 	}
@@ -738,4 +740,21 @@ func handleMULTI(conn net.Conn, arr []any, store *Store) {
 	}
 	
 	writeOK(conn)
+}
+// handleEXEC executes queued commands.
+// For this stage, it only handles the error case when MULTI hasn't been called.
+func handleEXEC(conn net.Conn, arr []any, store *Store) {
+	if len(arr) != 1 {
+		writeErr(conn, "wrong number of arguments for 'EXEC' command")
+		return
+	}
+
+	// Check if the connection is currently in a transaction block
+	if !store.IsInTx(conn) {
+		writeErr(conn, "ERR EXEC without MULTI")
+		return
+	}
+
+	// Note: The logic for actually executing queued commands 
+	// when IsInTx is true will be added in the next stage!
 }
