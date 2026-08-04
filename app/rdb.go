@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -86,6 +87,8 @@ func (p *RDBParser) readString() (string, error) {
 }
 
 // Update the Parse function signature and implementation
+// Parse reads the RDB file format and returns a map of key->value and a map of key->expiry.
+// This is a simplified parser focused on the subset needed by the exercise.
 func (p *RDBParser) Parse() (map[string]any, map[string]time.Time, error) {
 	store := make(map[string]any)
 	expiry := make(map[string]time.Time) // New expiry map
@@ -193,6 +196,7 @@ func (p *RDBParser) Parse() (map[string]any, map[string]time.Time, error) {
 func LoadRDB(filepath string) (map[string]any, map[string]time.Time) {
 	f, err := os.Open(filepath)
 	if err != nil {
+		slog.Error("failed to open RDB file", "path", filepath, "err", err)
 		return make(map[string]any), make(map[string]time.Time)
 	}
 	defer f.Close()
@@ -201,7 +205,7 @@ func LoadRDB(filepath string) (map[string]any, map[string]time.Time) {
 	store, expiry, err := parser.Parse()
 
 	if err != nil {
-		fmt.Printf("Error parsing RDB: %v\n", err)
+		slog.Error("error parsing RDB", "err", err)
 		if store == nil {
 			store = make(map[string]any)
 			expiry = make(map[string]time.Time)

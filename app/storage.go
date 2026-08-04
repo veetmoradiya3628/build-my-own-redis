@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"log/slog"
 	"net"
 	"sort"
 	"strconv"
@@ -42,6 +43,13 @@ func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
 	}
 }
 
+func init() {
+	slog.Debug("storage package initialized")
+}
+
+// Set stores a key/value pair without expiration.
+// Thread-safe: acquires write lock briefly to update maps.
+
 // Set stores a key/value pair without expiration.
 func (s *Store) Set(key string, value any) {
 	s.mu.Lock()
@@ -50,9 +58,12 @@ func (s *Store) Set(key string, value any) {
 	s.mu.Unlock()
 }
 
+
 // SetWithTTL stores a key/value pair and deletes it after ttlMillis milliseconds.
 func (s *Store) SetWithTTL(key string, value any, ttlMillis int) {
 	s.Set(key, value)
+
+	slog.Debug("SetWithTTL", "key", key, "ttl_ms", ttlMillis)
 
 	// Calculate and store the expiration time in our new map
 	s.mu.Lock()
@@ -93,6 +104,11 @@ func (s *Store) Get(key string) (any, bool) {
 			s.mu.Unlock()
 			return nil, false
 		}
+	}
+	if ok {
+		slog.Debug("Get hit", "key", key)
+	} else {
+		slog.Debug("Get miss", "key", key)
 	}
 	return v, ok
 }
@@ -353,6 +369,7 @@ func (s *Store) Subscribe(conn net.Conn, channel string) int {
 	}
 	s.clientSubscriptions[conn][channel] = struct{}{}
 
+	slog.Info("subscribe", "remote", conn.RemoteAddr(), "channel", channel)
 	return len(s.clientSubscriptions[conn])
 }
 
@@ -373,6 +390,7 @@ func (s *Store) Unsubscribe(conn net.Conn, channel string) int {
 		if remainingCount == 0 {
 			delete(s.clientSubscriptions, conn)
 		}
+		slog.Info("unsubscribe", "remote", conn.RemoteAddr(), "channel", channel)
 		return remainingCount
 	}
 	return 0
@@ -402,6 +420,7 @@ func (s *Store) PublishMessageOnChannel(channel, message string) int {
 	subscribers, exists := s.pubsub[channel]
 
 	if !exists {
+		slog.Debug("publish no subscribers", "channel", channel)
 		return 0
 	}
 
@@ -412,6 +431,7 @@ func (s *Store) PublishMessageOnChannel(channel, message string) int {
 		}(subscriber)
 	}
 
+	slog.Info("published message", "channel", channel, "subscribers", len(subscribers))
 	return len(subscribers)
 }
 
@@ -442,6 +462,7 @@ func (s *Store) Incr(key string) (int, error) {
 	intVal++
 	s.cache[key] = strconv.Itoa(intVal)
 
+	slog.Debug("INCR", "key", key, "value", intVal)
 	return intVal, nil
 }
 // Transaction commands
@@ -500,3 +521,6 @@ func (s *Store) GetAndClearTx(conn net.Conn) ([][]any, bool) {
 	
 	return queue, exists
 }
+
+// Get retrieves a key value if present and also enforces expiration checks.
+// Returns (nil,false) if the key does not exist or has expired.

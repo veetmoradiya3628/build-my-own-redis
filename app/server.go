@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -16,7 +15,7 @@ type ServerConfig struct {
 }
 
 func main() {
-	fmt.Println("Logs from your program will appear here!")
+	slog.Info("Logs from your program will appear here!")
 
 	dirFlag := flag.String("dir", "", "Directory where RDB files are stored")
 	dbFlag := flag.String("dbfilename", "", "Name of the RDB file name")
@@ -38,6 +37,7 @@ func main() {
 
 		// Load both maps
 		initialData, initialExpiry = LoadRDB(rdbPath)
+		slog.Info("RDB load summary", "keys_loaded", len(initialData), "expiry_entries", len(initialExpiry))
 	} else {
 		initialData = make(map[string]any)
 		initialExpiry = make(map[string]time.Time)
@@ -48,7 +48,7 @@ func main() {
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
+		slog.Error("failed to bind to port 6379", "err", err)
 		os.Exit(1)
 	}
 	defer l.Close()
@@ -58,10 +58,11 @@ func main() {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
+			slog.Error("error accepting connection", "err", err)
 			continue
 		}
 
+		slog.Debug("accepted connection", "remote", conn.RemoteAddr())
 		// Pass the shared store to the handler
 		go handleConnection(conn, store, config)
 	}

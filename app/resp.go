@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 )
@@ -121,6 +122,7 @@ func ParseRESP(reader *bufio.Reader) (any, error) {
 	case ':': // RESP Integer
 		return handleRESPInteger(reader)
 	default:
+		slog.Warn("unknown RESP prefix", "prefix", prefix)
 		return nil, fmt.Errorf("unknown prefix: %c", prefix)
 	}
 }

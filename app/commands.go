@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -15,10 +16,33 @@ func asString(v any) (string, bool) {
 }
 
 // Helper: write common replies
-func writeOK(conn net.Conn)                 { conn.Write([]byte("+OK\r\n")) }
-func writeErr(conn net.Conn, msg string)    { conn.Write([]byte("-ERR " + msg + "\r\n")) }
-func writeNullBulk(conn net.Conn)           { conn.Write([]byte("$-1\r\n")) }
-func writeInteger(conn net.Conn, value int) { conn.Write([]byte(":" + strconv.Itoa(value) + "\r\n")) }
+func writeOK(conn net.Conn) {
+	_, _ = conn.Write([]byte("+OK\r\n"))
+	if addr := conn.RemoteAddr(); addr != nil {
+		slog.Debug("writeOK", "remote", addr.String())
+	}
+}
+
+func writeErr(conn net.Conn, msg string) {
+	_, _ = conn.Write([]byte("-ERR " + msg + "\r\n"))
+	if addr := conn.RemoteAddr(); addr != nil {
+		slog.Warn("writeErr", "remote", addr.String(), "msg", msg)
+	}
+}
+
+func writeNullBulk(conn net.Conn) {
+	_, _ = conn.Write([]byte("$-1\r\n"))
+	if addr := conn.RemoteAddr(); addr != nil {
+		slog.Debug("writeNullBulk", "remote", addr.String())
+	}
+}
+
+func writeInteger(conn net.Conn, value int) {
+	_, _ = conn.Write([]byte(":" + strconv.Itoa(value) + "\r\n"))
+	if addr := conn.RemoteAddr(); addr != nil {
+		slog.Debug("writeInteger", "remote", addr.String(), "value", value)
+	}
+}
 
 func writeArrayResponse(conn net.Conn, items []string) error {
 	var builder strings.Builder
@@ -33,6 +57,13 @@ func writeArrayResponse(conn net.Conn, items []string) error {
 		builder.WriteString("\r\n")
 	}
 	_, err := conn.Write([]byte(builder.String()))
+	if err != nil {
+		slog.Error("failed to write array response", "err", err)
+	} else {
+		if addr := conn.RemoteAddr(); addr != nil {
+			slog.Debug("wrote array response", "remote", addr.String(), "count", len(items))
+		}
+	}
 	return err
 }
 
@@ -75,6 +106,13 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		return
 	}
 	cmd := strings.ToUpper(cmdRaw)
+
+	// Log the incoming command for debugging/tracing.
+	remote := "unknown"
+	if addr := conn.RemoteAddr(); addr != nil {
+		remote = addr.String()
+	}
+	slog.Debug("handleCommand", "remote", remote, "raw_cmd", cmd)
 
 	// Intercept commands if the client is in Subscribed mode
 	if store.IsSubscribed(conn) {
@@ -154,6 +192,7 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	case "DISCARD":
 		handleDISCARD(conn, arr, store)
 	default:
+		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
 	}
 }
@@ -191,10 +230,12 @@ func handleSET(conn net.Conn, arr []any, store *Store) {
 	key, _ := asString(arr[1])
 	value, _ := asString(arr[2])
 	if ttl, ok := parseTTL(arr); ok {
+		slog.Debug("SET with TTL", "key", key, "ttl_ms", ttl)
 		store.SetWithTTL(key, value, ttl)
 		writeOK(conn)
 		return
 	}
+	slog.Debug("SET", "key", key)
 	store.Set(key, value)
 	writeOK(conn)
 }
@@ -207,8 +248,10 @@ func handleGET(conn net.Conn, arr []any, store *Store) {
 	}
 	key, _ := asString(arr[1])
 	if v, ok := store.Get(key); ok {
+		slog.Debug("GET hit", "key", key)
 		writeBulkString(conn, v.(string))
 	} else {
+		slog.Debug("GET miss", "key", key)
 		writeNullBulk(conn)
 	}
 }
@@ -219,6 +262,7 @@ func handleLPUSH(conn net.Conn, arr []any, store *Store) {
 		return
 	}
 	key, _ := asString(arr[1])
+	slog.Debug("LPUSH", "key", key)
 	values := make([]string, 0, len(arr)-2)
 	for _, v := range arr[2:] {
 		if str, ok := asString(v); ok {
@@ -267,6 +311,7 @@ func handleRPUSH(conn net.Conn, arr []any, store *Store) {
 		return
 	}
 	key, _ := asString(arr[1])
+	slog.Debug("RPUSH", "key", key)
 	values := make([]string, 0, len(arr)-2)
 	for _, v := range arr[2:] {
 		if str, ok := asString(v); ok {
@@ -442,6 +487,8 @@ func handleBLPOP(conn net.Conn, arr []any, store *Store) {
 
 	key, _ := asString(arr[1])
 	timeoutStr, _ := asString(arr[len(arr)-1])
+
+	slog.Debug("BLPOP", "key", key, "timeout", timeoutStr)
 
 	timeoutSeconds, err := strconv.ParseFloat(timeoutStr, 64)
 	if err != nil {
@@ -674,6 +721,7 @@ func handleSUBSCRIBE(conn net.Conn, arr []any, store *Store) {
 		}
 
 		subCount := store.Subscribe(conn, channel)
+		slog.Info("SUBSCRIBE", "remote", conn.RemoteAddr(), "channel", channel, "count", subCount)
 
 		// format : *3\r\n$9\r\nsubscribe\r\n$<len(channel)>\r\n<channel>\r\n:<i>\r\n
 		resp := fmt.Sprintf("*3\r\n$9\r\nsubscribe\r\n$%d\r\n%s\r\n:%d\r\n", len(channel), channel, subCount)
@@ -694,6 +742,7 @@ func handleUNSUBSCRIBE(conn net.Conn, arr []any, store *Store) {
 		}
 
 		subCount := store.Unsubscribe(conn, channel)
+		slog.Info("UNSUBSCRIBE", "remote", conn.RemoteAddr(), "channel", channel, "count", subCount)
 
 		// format : *3\r\n$11\r\nunsubscribe\r\n$<len(channel)>\r\n<channel>\r\n:<i>\r\n
 		resp := fmt.Sprintf("*3\r\n$11\r\nunsubscribe\r\n$%d\r\n%s\r\n:%d\r\n", len(channel), channel, subCount)
@@ -710,6 +759,7 @@ func handlePUBLISH(conn net.Conn, arr []any, store *Store) {
 	channelName, _ := asString(arr[1])
 	messageContent, _ := asString(arr[2])
 
+	slog.Info("PUBLISH", "channel", channelName, "message", messageContent)
 	publishCnt := store.PublishMessageOnChannel(channelName, messageContent)
 	writeInteger(conn, publishCnt)
 }
@@ -727,6 +777,7 @@ func handleINCR(conn net.Conn, arr []any, store *Store) {
 		return
 	}
 
+	slog.Debug("INCR result", "key", key, "value", val)
 	writeInteger(conn, val)
 }
 func handleMULTI(conn net.Conn, arr []any, store *Store) {
@@ -737,10 +788,12 @@ func handleMULTI(conn net.Conn, arr []any, store *Store) {
 	
 	// Attempt to start the transaction
 	if !store.StartTx(conn) {
+		slog.Warn("MULTI nested attempt", "remote", conn.RemoteAddr())
 		writeErr(conn, "ERR MULTI calls can not be nested")
 		return
 	}
-	
+
+	slog.Debug("MULTI started", "remote", conn.RemoteAddr())
 	writeOK(conn)
 }
 // handleEXEC executes queued commands.
@@ -754,11 +807,13 @@ func handleEXEC(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 
 	// Check if the connection is currently in a transaction block
 	if !wasInTx {
+		slog.Warn("EXEC without MULTI", "remote", conn.RemoteAddr())
 		writeErr(conn, "EXEC without MULTI")
 		return
 	}
 
 	if len(queue) == 0 {
+		slog.Debug("EXEC empty queue", "remote", conn.RemoteAddr())
 		conn.Write([]byte("*0\r\n"))
 		return
 	}
@@ -776,10 +831,12 @@ func handleDISCARD(conn net.Conn, arr []any, store *Store){
 	}
 
 	if !store.IsInTx(conn) {
+		slog.Warn("DISCARD without MULTI", "remote", conn.RemoteAddr())
 		writeErr(conn, "DISCARD without MULTI")
 		return
 	}
 
 	store.ClearTx(conn)
+	slog.Debug("DISCARD executed", "remote", conn.RemoteAddr())
 	writeOK(conn)
 }
