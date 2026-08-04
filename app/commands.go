@@ -128,7 +128,7 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	// Intercept commands if the client is in a Transaction (MULTI) block
 	if store.IsInTx(conn) {
 		switch cmd {
-		case "EXEC", "DISCARD", "MULTI", "QUIT":
+		case "EXEC", "DISCARD", "MULTI", "QUIT", "WATCH":
 			// Let these commands pass through to be handled normally
 		default:
 			// Queue the command and return +QUEUED
@@ -193,6 +193,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleDISCARD(conn, arr, store)
 	case "WATCH":
 		handleWATCH(conn, arr, store)
+	case "UNWATCH":
+		handleUNWATCH(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -505,6 +507,9 @@ func handleBLPOP(conn net.Conn, arr []any, store *Store) {
 		if len(store.cache[key].([]string)) == 0 {
 			delete(store.cache, key)
 		}
+		
+		store.markDirty(key) // Notify watches for list pops!
+
 		writeArrayResponse(conn, []string{key, val})
 		store.mu.Unlock()
 		return
@@ -814,6 +819,16 @@ func handleEXEC(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 		return
 	}
 
+	isDirty := store.IsDirty(conn)
+	store.Unwatch(conn) // EXEC clears watched keys unconditionally
+
+	// If keys were modified, abort transaction and return a RESP null array
+	if isDirty {
+		slog.Debug("EXEC aborted due to modified watched keys", "remote", conn.RemoteAddr())
+		conn.Write([]byte("*-1\r\n")) 
+		return
+	}
+
 	if len(queue) == 0 {
 		slog.Debug("EXEC empty queue", "remote", conn.RemoteAddr())
 		conn.Write([]byte("*0\r\n"))
@@ -839,6 +854,7 @@ func handleDISCARD(conn net.Conn, arr []any, store *Store){
 	}
 
 	store.ClearTx(conn)
+	store.Unwatch(conn) // DISCARD also clears watched keys
 	slog.Debug("DISCARD executed", "remote", conn.RemoteAddr())
 	writeOK(conn)
 }
@@ -848,5 +864,27 @@ func handleWATCH(conn net.Conn, arr []any, store *Store) {
 		writeErr(conn, "wrong number of arguments for 'WATCH' command")
 		return
 	}
+	if store.IsInTx(conn) {
+		writeErr(conn, "WATCH inside MULTI is not allowed")
+		return
+	}
+
+	keys := make([]string, 0, len(arr)-1)
+	for _, v := range arr[1:] {
+		if key, ok := asString(v); ok {
+			keys = append(keys, key)
+		}
+	}
+
+	store.Watch(conn, keys)
+	writeOK(conn)
+}
+
+func handleUNWATCH(conn net.Conn, arr []any, store *Store) {
+	if len(arr) != 1 {
+		writeErr(conn, "wrong number of arguments for 'UNWATCH' command")
+		return
+	}
+	store.Unwatch(conn)
 	writeOK(conn)
 }

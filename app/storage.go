@@ -18,6 +18,8 @@ type Store struct {
 	pubsub              map[string]map[net.Conn]struct{}
 	clientSubscriptions map[net.Conn]map[string]struct{}
 	transactions 		map[net.Conn][][]any
+	watchedKeys 		map[string]map[net.Conn]struct{}
+	dirtyClients		map[net.Conn]bool
 }
 
 type ZSetNode struct {
@@ -40,6 +42,8 @@ func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
 		pubsub:              make(map[string]map[net.Conn]struct{}),
 		clientSubscriptions: make(map[net.Conn]map[string]struct{}),
 		transactions:        make(map[net.Conn][][]any),
+		watchedKeys:         make(map[string]map[net.Conn]struct{}),
+		dirtyClients:        make(map[net.Conn]bool),
 	}
 }
 
@@ -55,6 +59,7 @@ func (s *Store) Set(key string, value any) {
 	s.mu.Lock()
 	s.cache[key] = value
 	delete(s.expiry, key)
+	s.markDirty(key)
 	s.mu.Unlock()
 }
 
@@ -126,6 +131,7 @@ func (s *Store) LPush(key string, values ...string) int {
 			}
 			newList = append(newList, list...)
 			s.cache[key] = newList
+			s.markDirty(key)
 			return len(newList)
 		}
 	}
@@ -135,6 +141,7 @@ func (s *Store) LPush(key string, values ...string) int {
 		reversed[len(values)-1-i] = v
 	}
 	s.cache[key] = reversed
+	s.markDirty(key)
 	return len(reversed)
 }
 
@@ -147,10 +154,12 @@ func (s *Store) RPush(key string, values ...string) int {
 		if list, ok := existing.([]string); ok {
 			newList := append(list, values...)
 			s.cache[key] = newList
+			s.markDirty(key)
 			return len(newList)
 		}
 	}
 	s.cache[key] = values
+	s.markDirty(key)
 	return len(values)
 }
 
@@ -213,6 +222,7 @@ func (s *Store) ZAdd(key string, score float64, member string) int {
 		added = 1
 	}
 	zset[member] = score
+	s.markDirty(key)
 	return added
 }
 
@@ -352,6 +362,10 @@ func (s *Store) ZRem(key string, members []string) int {
 		delete(s.cache, key)
 	}
 
+	if removedCount > 0 {
+		s.markDirty(key)
+	}
+
 	return removedCount
 }
 
@@ -443,6 +457,7 @@ func (s *Store) Incr(key string) (int, error) {
 	if !ok {
 		// Key doesn't exist, set to 1 directly
 		s.cache[key] = "1"
+		s.markDirty(key)
 		return 1, nil
 	}
 
@@ -461,6 +476,7 @@ func (s *Store) Incr(key string) (int, error) {
 	// Increment and store back as a string
 	intVal++
 	s.cache[key] = strconv.Itoa(intVal)
+	s.markDirty(key)
 
 	slog.Debug("INCR", "key", key, "value", intVal)
 	return intVal, nil
@@ -522,5 +538,45 @@ func (s *Store) GetAndClearTx(conn net.Conn) ([][]any, bool) {
 	return queue, exists
 }
 
-// Get retrieves a key value if present and also enforces expiration checks.
-// Returns (nil,false) if the key does not exist or has expired.
+// Watch registers a connection to watch specific keys
+func (s *Store) Watch(conn net.Conn, keys []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, key := range keys {
+		if s.watchedKeys[key] == nil {
+			s.watchedKeys[key] = make(map[net.Conn]struct{})
+		}
+		s.watchedKeys[key][conn] = struct{}{}
+	}
+}
+
+// Unwatch removes all watched keys and clears the dirty state for a connection
+func (s *Store) Unwatch(conn net.Conn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for key, conns := range s.watchedKeys {
+		delete(conns, conn)
+		if len(conns) == 0 {
+			delete(s.watchedKeys, key)
+		}
+	}
+	delete(s.dirtyClients, conn)
+}
+
+// markDirty flags any connection watching the modified key as dirty.
+func (s *Store) markDirty(key string) {
+	if conns, exists := s.watchedKeys[key]; exists {
+		for conn := range conns {
+			s.dirtyClients[conn] = true
+		}
+	}
+}
+
+// IsDirty returns true if any watched key for the connection was modified
+func (s *Store) IsDirty(conn net.Conn) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.dirtyClients[conn]
+}
