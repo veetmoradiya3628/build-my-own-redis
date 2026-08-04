@@ -191,6 +191,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleEXEC(conn, arr, store, config)
 	case "DISCARD":
 		handleDISCARD(conn, arr, store)
+	case "WATCH":
+		handleWATCH(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -838,5 +840,13 @@ func handleDISCARD(conn net.Conn, arr []any, store *Store){
 
 	store.ClearTx(conn)
 	slog.Debug("DISCARD executed", "remote", conn.RemoteAddr())
+	writeOK(conn)
+}
+
+func handleWATCH(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'WATCH' command")
+		return
+	}
 	writeOK(conn)
 }
