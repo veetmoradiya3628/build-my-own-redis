@@ -886,6 +886,7 @@ func handleUNWATCH(conn net.Conn, arr []any, store *Store) {
 		writeErr(conn, "wrong number of arguments for 'UNWATCH' command")
 		return
 	}
+	slog.Info("UNWATCH", "remote", conn.RemoteAddr())
 	store.Unwatch(conn)
 	writeOK(conn)
 }
