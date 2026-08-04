@@ -869,6 +869,7 @@ func handleWATCH(conn net.Conn, arr []any, store *Store) {
 		return
 	}
 
+	slog.Info("WATCH", "remote", conn.RemoteAddr(), "keys", arr[1:])
 	keys := make([]string, 0, len(arr)-1)
 	for _, v := range arr[1:] {
 		if key, ok := asString(v); ok {

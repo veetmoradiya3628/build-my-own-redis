@@ -542,6 +542,7 @@ func (s *Store) GetAndClearTx(conn net.Conn) ([][]any, bool) {
 func (s *Store) Watch(conn net.Conn, keys []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	slog.Info("WATCH", "remote", conn.RemoteAddr(), "keys", keys)
 
 	for _, key := range keys {
 		if s.watchedKeys[key] == nil {
@@ -555,6 +556,7 @@ func (s *Store) Watch(conn net.Conn, keys []string) {
 func (s *Store) Unwatch(conn net.Conn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	slog.Info("UNWATCH", "remote", conn.RemoteAddr())
 
 	for key, conns := range s.watchedKeys {
 		delete(conns, conn)
@@ -567,6 +569,7 @@ func (s *Store) Unwatch(conn net.Conn) {
 
 // markDirty flags any connection watching the modified key as dirty.
 func (s *Store) markDirty(key string) {
+	slog.Debug("markDirty", "key", key)
 	if conns, exists := s.watchedKeys[key]; exists {
 		for conn := range conns {
 			s.dirtyClients[conn] = true
@@ -576,6 +579,7 @@ func (s *Store) markDirty(key string) {
 
 // IsDirty returns true if any watched key for the connection was modified
 func (s *Store) IsDirty(conn net.Conn) bool {
+	slog.Debug("IsDirty check", "remote", conn.RemoteAddr())
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.dirtyClients[conn]
