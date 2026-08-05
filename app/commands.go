@@ -180,6 +180,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleZRANK(conn, arr, store)
 	case "ZCARD":
 		handleZCARD(conn, arr, store)
+	case "XADD":
+		handleXADD(conn, arr, store)
 	case "ZSCORE":
 		handleZSCORE(conn, arr, store)
 	case "ZREM":
@@ -920,8 +922,50 @@ func handleTYPE(conn net.Conn, arr []any, store *Store) {
 		typeStr = "list"
 	case map[string]float64:
 		typeStr = "zset"
+	case []StreamEntry:
+		typeStr = "stream"
 	default:
 		typeStr = "unknown"
 	}
 	writeString(conn, typeStr)
+}
+
+// handleXADD appends an entry to a stream. Syntax: XADD key id field value [field value ...]
+func handleXADD(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 5 {
+		writeErr(conn, "wrong number of arguments for 'XADD' command")
+		return
+	}
+	key, _ := asString(arr[1])
+	id, _ := asString(arr[2])
+
+	// remaining args must be field value pairs
+	if (len(arr)-3)%2 != 0 {
+		writeErr(conn, "wrong number of arguments for 'XADD' command: fields must be key value pairs")
+		return
+	}
+
+	fields := make(map[string]string)
+	for i := 3; i < len(arr); i += 2 {
+		f, ok1 := asString(arr[i])
+		v, ok2 := asString(arr[i+1])
+		if !ok1 || !ok2 {
+			writeErr(conn, "XADD fields and values must be strings")
+			return
+		}
+		fields[f] = v
+	}
+
+	// If key exists and is not a stream, return WRONGTYPE error
+	if v, exists := store.Get(key); exists {
+		if _, isStream := v.([]StreamEntry); !isStream {
+			writeErr(conn, "WRONGTYPE Operation against a key holding the wrong kind of value")
+			return
+		}
+	}
+
+	// Append to stream
+	newID := store.XAdd(key, id, fields)
+	// Return the ID as a bulk string
+	writeBulkString(conn, newID)
 }

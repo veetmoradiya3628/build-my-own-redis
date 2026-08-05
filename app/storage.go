@@ -21,10 +21,16 @@ type Store struct {
 	watchedKeys 		map[string]map[net.Conn]struct{}
 	dirtyClients		map[net.Conn]bool
 }
-
+// ZSetNode represents a member of a sorted set with its associated score.
 type ZSetNode struct {
 	member string
 	score  float64
+}
+
+// StreamEntry represents a single entry in a Redis stream.
+type StreamEntry struct {
+	ID     string
+	Fields map[string]string
 }
 
 func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
@@ -583,4 +589,29 @@ func (s *Store) IsDirty(conn net.Conn) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.dirtyClients[conn]
+}
+
+// XAdd appends an entry to a stream stored at key. If the stream doesn't
+// exist, it is created. We store streams as a slice of StreamEntry.
+func (s *Store) XAdd(key string, id string, fields map[string]string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// If key doesn't exist, create a new stream
+	if existing, ok := s.cache[key]; !ok {
+		entries := []StreamEntry{{ID: id, Fields: fields}}
+		s.cache[key] = entries
+		s.markDirty(key)
+		return id
+	} else {
+		// If exists, ensure it's a stream
+		if entries, isStream := existing.([]StreamEntry); isStream {
+			entries = append(entries, StreamEntry{ID: id, Fields: fields})
+			s.cache[key] = entries
+			s.markDirty(key)
+			return id
+		}
+		// If key exists but is not a stream, do nothing (caller should handle type errors)
+		return id
+	}
 }
