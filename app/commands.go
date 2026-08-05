@@ -1065,7 +1065,7 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 	}
 	n := len(rem) / 2
 	keys := make([]string, 0, n)
-	ids := make([]string, 0, n)
+	rawIds := make([]string, 0, n)
 	for i := 0; i < n; i++ {
 		if k, ok := asString(rem[i]); ok {
 			keys = append(keys, k)
@@ -1076,16 +1076,93 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 	}
 	for i := n; i < 2*n; i++ {
 		if id, ok := asString(rem[i]); ok {
-			ids = append(ids, id)
+			rawIds = append(rawIds, id)
 		} else {
 			writeErr(conn, "XREAD ids must be strings")
 			return
 		}
 	}
 
-	// Try immediate read first
-	data, err := store.XRead(keys, ids)
+	// Non-blocking: substitute '$' with current stream top and read
+	if !block {
+		ids := make([]string, n)
+		for i := 0; i < n; i++ {
+			if rawIds[i] == "$" {
+				// get last ID for key
+				if v, ok := store.Get(keys[i]); ok {
+					if entries, isStream := v.([]StreamEntry); isStream && len(entries) > 0 {
+						ids[i] = entries[len(entries)-1].ID
+						continue
+					}
+				}
+				ids[i] = "0-0"
+			} else {
+				ids[i] = rawIds[i]
+			}
+		}
+
+		data, err := store.XRead(keys, ids)
+		if err != nil {
+			writeErr(conn, err.Error())
+			return
+		}
+
+		// Build RESP response: array of streams
+		_, _ = conn.Write([]byte("*" + strconv.Itoa(len(keys)) + "\r\n"))
+		for _, k := range keys {
+			entries := data[k]
+			// Each stream: array of 2 elements: key, entries array
+			_, _ = conn.Write([]byte("*2\r\n"))
+			writeBulkString(conn, k)
+			// entries array
+			_, _ = conn.Write([]byte("*" + strconv.Itoa(len(entries)) + "\r\n"))
+			for _, e := range entries {
+				// entry array: [id, [fields...]]
+				_, _ = conn.Write([]byte("*2\r\n"))
+				writeBulkString(conn, e.ID)
+				// fields array
+				if err := writeArrayResponse(conn, e.Fields); err != nil {
+					return
+				}
+			}
+		}
+		return
+	}
+
+	// Blocking: register waiter channel first and capture current stream tops for '$'
+	ch := make(chan string, 1)
+	lastIDs := make([]string, n)
+	for i, k := range keys {
+		store.mu.Lock()
+		if v, exists := store.cache[k]; exists {
+			if entries, ok := v.([]StreamEntry); ok && len(entries) > 0 {
+				lastIDs[i] = entries[len(entries)-1].ID
+			} else {
+				lastIDs[i] = "0-0"
+			}
+		} else {
+			lastIDs[i] = "0-0"
+		}
+		store.waiters[k] = append(store.waiters[k], ch)
+		store.mu.Unlock()
+	}
+
+	// Build ids to use for initial check after registration
+	idsToUse := make([]string, n)
+	for i := 0; i < n; i++ {
+		if rawIds[i] == "$" {
+			idsToUse[i] = lastIDs[i]
+		} else {
+			idsToUse[i] = rawIds[i]
+		}
+	}
+
+	data, err := store.XRead(keys, idsToUse)
 	if err != nil {
+		// clean up waiters
+		for _, k := range keys {
+			store.CleanUpExpiredKeyWaiter(k, ch)
+		}
 		writeErr(conn, err.Error())
 		return
 	}
@@ -1098,25 +1175,16 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 		}
 	}
 
-	if !hasAny && block {
-		// Register a shared waiter channel on each key and wait for notification or timeout
-		ch := make(chan string, 1)
-		for _, k := range keys {
-			store.mu.Lock()
-			store.waiters[k] = append(store.waiters[k], ch)
-			store.mu.Unlock()
-		}
-
+	if !hasAny {
+		// wait
 		timedOut := false
 		if timeoutMs == 0 {
-			// block indefinitely until notified
 			<-ch
 		} else {
 			select {
 			case <-time.After(time.Duration(timeoutMs) * time.Millisecond):
 				timedOut = true
 			case <-ch:
-				// awakened
 			}
 		}
 
@@ -1131,7 +1199,7 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 		}
 
 		// Re-read after wakeup
-		data, err = store.XRead(keys, ids)
+		data, err = store.XRead(keys, idsToUse)
 		if err != nil {
 			writeErr(conn, err.Error())
 			return
