@@ -249,7 +249,7 @@ func handleSET(conn net.Conn, arr []any, store *Store) {
 	key, _ := asString(arr[1])
 	value, _ := asString(arr[2])
 	if ttl, ok := parseTTL(arr); ok {
-		slog.Debug("SET with TTL", "key", key, "ttl_ms", ttl)
+		slog.Info("SET with TTL", "key", key, "ttl_ms", ttl)
 		store.SetWithTTL(key, value, ttl)
 		writeOK(conn)
 		return
@@ -522,7 +522,7 @@ func handleBLPOP(conn net.Conn, arr []any, store *Store) {
 		if len(store.cache[key].([]string)) == 0 {
 			delete(store.cache, key)
 		}
-		
+
 		store.markDirty(key) // Notify watches for list pops!
 
 		writeArrayResponse(conn, []string{key, val})
@@ -807,7 +807,7 @@ func handleMULTI(conn net.Conn, arr []any, store *Store) {
 		writeErr(conn, "wrong number of arguments for 'MULTI' command")
 		return
 	}
-	
+
 	// Attempt to start the transaction
 	if !store.StartTx(conn) {
 		slog.Warn("MULTI nested attempt", "remote", conn.RemoteAddr())
@@ -818,6 +818,7 @@ func handleMULTI(conn net.Conn, arr []any, store *Store) {
 	slog.Debug("MULTI started", "remote", conn.RemoteAddr())
 	writeOK(conn)
 }
+
 // handleEXEC executes queued commands.
 // For this stage, it only handles the error case when MULTI hasn't been called.
 func handleEXEC(conn net.Conn, arr []any, store *Store, config ServerConfig) {
@@ -840,7 +841,7 @@ func handleEXEC(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	// If keys were modified, abort transaction and return a RESP null array
 	if isDirty {
 		slog.Debug("EXEC aborted due to modified watched keys", "remote", conn.RemoteAddr())
-		conn.Write([]byte("*-1\r\n")) 
+		conn.Write([]byte("*-1\r\n"))
 		return
 	}
 
@@ -856,7 +857,7 @@ func handleEXEC(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	}
 }
 
-func handleDISCARD(conn net.Conn, arr []any, store *Store){
+func handleDISCARD(conn net.Conn, arr []any, store *Store) {
 	if len(arr) != 1 {
 		writeErr(conn, "wrong number of arguments for 'DISCARD' command")
 		return
@@ -950,7 +951,7 @@ func handleXADD(conn net.Conn, arr []any, store *Store) {
 	}
 
 	// Build ordered flat fields slice: [field1, value1, field2, value2, ...]
-	fieldsSlice := make([]string, 0, (len(arr)-3))
+	fieldsSlice := make([]string, 0, (len(arr) - 3))
 	for i := 3; i < len(arr); i += 2 {
 		f, ok1 := asString(arr[i])
 		v, ok2 := asString(arr[i+1])

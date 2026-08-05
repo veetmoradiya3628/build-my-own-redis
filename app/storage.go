@@ -19,10 +19,11 @@ type Store struct {
 	expiry              map[string]time.Time
 	pubsub              map[string]map[net.Conn]struct{}
 	clientSubscriptions map[net.Conn]map[string]struct{}
-	transactions 		map[net.Conn][][]any
-	watchedKeys 		map[string]map[net.Conn]struct{}
-	dirtyClients		map[net.Conn]bool
+	transactions        map[net.Conn][][]any
+	watchedKeys         map[string]map[net.Conn]struct{}
+	dirtyClients        map[net.Conn]bool
 }
+
 // ZSetNode represents a member of a sorted set with its associated score.
 type ZSetNode struct {
 	member string
@@ -31,7 +32,7 @@ type ZSetNode struct {
 
 // StreamEntry represents a single entry in a Redis stream.
 type StreamEntry struct {
-	ID     string
+	ID string
 	// Fields stored as a flat slice to preserve insertion order: [field1, value1, field2, value2, ...]
 	Fields []string
 }
@@ -109,7 +110,6 @@ func (s *Store) Set(key string, value any) {
 	s.markDirty(key)
 	s.mu.Unlock()
 }
-
 
 // SetWithTTL stores a key/value pair and deletes it after ttlMillis milliseconds.
 func (s *Store) SetWithTTL(key string, value any, ttlMillis int) {
@@ -528,17 +528,18 @@ func (s *Store) Incr(key string) (int, error) {
 	slog.Debug("INCR", "key", key, "value", intVal)
 	return intVal, nil
 }
+
 // Transaction commands
 // StartTx marks a connection as being in a transaction block.
 // Returns false if the connection is already in a transaction.
 func (s *Store) StartTx(conn net.Conn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if _, exists := s.transactions[conn]; exists {
 		return false // Already in a transaction
 	}
-	
+
 	// Initialize an empty queue for this connection
 	s.transactions[conn] = make([][]any, 0)
 	return true
@@ -548,7 +549,7 @@ func (s *Store) StartTx(conn net.Conn) bool {
 func (s *Store) QueueCommand(conn net.Conn, arr []any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if queue, exists := s.transactions[conn]; exists {
 		s.transactions[conn] = append(queue, arr)
 	}
@@ -558,7 +559,7 @@ func (s *Store) QueueCommand(conn net.Conn, arr []any) {
 func (s *Store) IsInTx(conn net.Conn) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	_, exists := s.transactions[conn]
 	return exists
 }
@@ -567,21 +568,22 @@ func (s *Store) IsInTx(conn net.Conn) bool {
 func (s *Store) ClearTx(conn net.Conn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	delete(s.transactions, conn)
 }
+
 // GetAndClearTx retrieves the transaction queue and clears the transaction state for a connection.
 // It returns the queue and a boolean indicating if the connection was in a transaction.
 func (s *Store) GetAndClearTx(conn net.Conn) ([][]any, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	queue, exists := s.transactions[conn]
 	if exists {
 		// Clear the transaction state
 		delete(s.transactions, conn)
 	}
-	
+
 	return queue, exists
 }
 
@@ -635,7 +637,7 @@ func (s *Store) IsDirty(conn net.Conn) bool {
 // XAdd appends an entry to a stream stored at key. If the stream doesn't
 // exist, it is created. We store streams as a slice of StreamEntry.
 func (s *Store) XAdd(key string, id string, fields []string) (string, error) {
-	
+
 	// IDs can be:
 	//  - explicit (<ms>-<seq>)
 	//  - auto-sequence (<ms>-*)
@@ -797,7 +799,7 @@ func parseIDOptionalSeq(id string, isStart bool) (int64, int64, error) {
 	if isStart {
 		return ms, 0, nil
 	}
-	return ms, int64(^uint64(0)>>1), nil // MaxInt64
+	return ms, int64(^uint64(0) >> 1), nil // MaxInt64
 }
 
 // XRead reads entries strictly greater than the provided ID (exclusive) for each stream.
