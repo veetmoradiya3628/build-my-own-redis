@@ -767,6 +767,11 @@ func parseIDOptionalSeq(id string, isStart bool) (int64, int64, error) {
 	if id == "-" {
 		return 0, 0, nil
 	}
+	if id == "+" {
+		// represent end of stream as very large values
+		max := int64(^uint64(0) >> 1)
+		return max, max, nil
+	}
 	if strings.Contains(id, "-") {
 		// normal id with seq
 		ms, seq, err := parseStreamID(id)
