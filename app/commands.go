@@ -965,7 +965,11 @@ func handleXADD(conn net.Conn, arr []any, store *Store) {
 	}
 
 	// Append to stream
-	newID := store.XAdd(key, id, fields)
+	newID, err := store.XAdd(key, id, fields)
+	if err != nil {
+		writeErr(conn, err.Error())
+		return
+	}
 	// Return the ID as a bulk string
 	writeBulkString(conn, newID)
 }

@@ -2,10 +2,12 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,6 +33,23 @@ type ZSetNode struct {
 type StreamEntry struct {
 	ID     string
 	Fields map[string]string
+}
+
+// parseStreamID parses an ID of the form <ms>-<seq> into two integers.
+func parseStreamID(id string) (int64, int64, error) {
+	parts := strings.Split(id, "-")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid id format")
+	}
+	ms, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	seq, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	return ms, seq, nil
 }
 
 func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
@@ -593,25 +612,58 @@ func (s *Store) IsDirty(conn net.Conn) bool {
 
 // XAdd appends an entry to a stream stored at key. If the stream doesn't
 // exist, it is created. We store streams as a slice of StreamEntry.
-func (s *Store) XAdd(key string, id string, fields map[string]string) string {
+func (s *Store) XAdd(key string, id string, fields map[string]string) (string, error) {
+	// Only explicit IDs are supported in this stage: <ms>-<seq>
+	// Validate format first
+	newMs, newSeq, err := parseStreamID(id)
+	if err != nil {
+		return "", fmt.Errorf("invalid stream ID specified")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If key doesn't exist, create a new stream
+	// Determine last ID in stream (or 0-0 if none)
+	var lastMs int64 = 0
+	var lastSeq int64 = 0
+
+	if existing, ok := s.cache[key]; !ok {
+		// empty stream: compare against 0-0
+	} else {
+		if entries, isStream := existing.([]StreamEntry); isStream {
+			if len(entries) > 0 {
+				last := entries[len(entries)-1]
+				lm, ls, err := parseStreamID(last.ID)
+				if err == nil {
+					lastMs = lm
+					lastSeq = ls
+				}
+			}
+		} else {
+			// Not a stream
+			return "", fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")
+		}
+	}
+
+	// ID must be greater than 0-0
+	if newMs == 0 && newSeq == 0 {
+		return "", fmt.Errorf("The ID specified in XADD must be greater than 0-0")
+	}
+
+	// Validate strictly greater than last ID
+	if newMs < lastMs || (newMs == lastMs && newSeq <= lastSeq) {
+		return "", fmt.Errorf("The ID specified in XADD is equal or smaller than the target stream top item")
+	}
+
+	// Append entry
 	if existing, ok := s.cache[key]; !ok {
 		entries := []StreamEntry{{ID: id, Fields: fields}}
 		s.cache[key] = entries
-		s.markDirty(key)
-		return id
 	} else {
-		// If exists, ensure it's a stream
-		if entries, isStream := existing.([]StreamEntry); isStream {
-			entries = append(entries, StreamEntry{ID: id, Fields: fields})
-			s.cache[key] = entries
-			s.markDirty(key)
-			return id
-		}
-		// If key exists but is not a stream, do nothing (caller should handle type errors)
-		return id
+		entries := existing.([]StreamEntry)
+		entries = append(entries, StreamEntry{ID: id, Fields: fields})
+		s.cache[key] = entries
 	}
+	s.markDirty(key)
+	return id, nil
 }
