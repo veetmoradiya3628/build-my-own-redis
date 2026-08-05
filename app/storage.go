@@ -764,6 +764,9 @@ func (s *Store) XRange(key string, startID string, endID string) ([]StreamEntry,
 // For start IDs (isStart=true) the missing seq defaults to 0.
 // For end IDs (isStart=false) the missing seq defaults to MaxInt64.
 func parseIDOptionalSeq(id string, isStart bool) (int64, int64, error) {
+	if id == "-" {
+		return 0, 0, nil
+	}
 	if strings.Contains(id, "-") {
 		// normal id with seq
 		ms, seq, err := parseStreamID(id)
