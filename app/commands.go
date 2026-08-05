@@ -228,7 +228,7 @@ func handleECHO(conn net.Conn, arr []any) {
 		return
 	}
 	if arg, ok := asString(arr[1]); ok {
-		writeString(conn, arg)
+		writeBulkString(conn, arg)
 	} else {
 		writeNullBulk(conn)
 	}
