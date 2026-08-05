@@ -52,6 +52,27 @@ func parseStreamID(id string) (int64, int64, error) {
 	return ms, seq, nil
 }
 
+// parseMaybeStarID parses an ID of the form <ms>-<seq> where <seq>
+// may be "*" to indicate auto-generation of the sequence number.
+func parseMaybeStarID(id string) (int64, int64, bool, error) {
+	parts := strings.Split(id, "-")
+	if len(parts) != 2 {
+		return 0, 0, false, fmt.Errorf("invalid id format")
+	}
+	ms, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if parts[1] == "*" {
+		return ms, 0, true, nil
+	}
+	seq, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	return ms, seq, false, nil
+}
+
 func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
 	if data == nil {
 		data = make(map[string]any)
@@ -613,9 +634,8 @@ func (s *Store) IsDirty(conn net.Conn) bool {
 // XAdd appends an entry to a stream stored at key. If the stream doesn't
 // exist, it is created. We store streams as a slice of StreamEntry.
 func (s *Store) XAdd(key string, id string, fields map[string]string) (string, error) {
-	// Only explicit IDs are supported in this stage: <ms>-<seq>
-	// Validate format first
-	newMs, newSeq, err := parseStreamID(id)
+	// IDs can be explicit (<ms>-<seq>) or auto-sequence (<ms>-*) in this stage.
+	newMs, newSeq, seqIsStar, err := parseMaybeStarID(id)
 	if err != nil {
 		return "", fmt.Errorf("invalid stream ID specified")
 	}
@@ -645,25 +665,39 @@ func (s *Store) XAdd(key string, id string, fields map[string]string) (string, e
 		}
 	}
 
-	// ID must be greater than 0-0
-	if newMs == 0 && newSeq == 0 {
-		return "", fmt.Errorf("The ID specified in XADD must be greater than 0-0")
+	var finalSeq int64 = newSeq
+	// If sequence is '*', auto-generate it based on stream top
+	if seqIsStar {
+		if newMs < lastMs {
+			return "", fmt.Errorf("The ID specified in XADD is equal or smaller than the target stream top item")
+		}
+		if newMs == lastMs {
+			finalSeq = lastSeq + 1
+		} else {
+			finalSeq = 0
+		}
+	} else {
+		// explicit seq: must be strictly greater than last
+		if newMs == 0 && newSeq == 0 {
+			return "", fmt.Errorf("The ID specified in XADD must be greater than 0-0")
+		}
+		if newMs < lastMs || (newMs == lastMs && newSeq <= lastSeq) {
+			return "", fmt.Errorf("The ID specified in XADD is equal or smaller than the target stream top item")
+		}
 	}
 
-	// Validate strictly greater than last ID
-	if newMs < lastMs || (newMs == lastMs && newSeq <= lastSeq) {
-		return "", fmt.Errorf("The ID specified in XADD is equal or smaller than the target stream top item")
-	}
+	// Final ID
+	finalID := fmt.Sprintf("%d-%d", newMs, finalSeq)
 
 	// Append entry
 	if existing, ok := s.cache[key]; !ok {
-		entries := []StreamEntry{{ID: id, Fields: fields}}
+		entries := []StreamEntry{{ID: finalID, Fields: fields}}
 		s.cache[key] = entries
 	} else {
 		entries := existing.([]StreamEntry)
-		entries = append(entries, StreamEntry{ID: id, Fields: fields})
+		entries = append(entries, StreamEntry{ID: finalID, Fields: fields})
 		s.cache[key] = entries
 	}
 	s.markDirty(key)
-	return id, nil
+	return finalID, nil
 }
