@@ -195,6 +195,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleWATCH(conn, arr, store)
 	case "UNWATCH":
 		handleUNWATCH(conn, arr, store)
+	case "TYPE":
+		handleTYPE(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -889,4 +891,30 @@ func handleUNWATCH(conn net.Conn, arr []any, store *Store) {
 	slog.Info("UNWATCH", "remote", conn.RemoteAddr())
 	store.Unwatch(conn)
 	writeOK(conn)
+}
+
+func handleTYPE(conn net.Conn, arr []any, store *Store) {
+	if len(arr) != 2 {
+		writeErr(conn, "wrong number of arguments for 'TYPE' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+	val, exists := store.Get(key)
+	if !exists {
+		writeBulkString(conn, "none")
+		return
+	}
+	var typeStr string
+	switch val.(type) {
+	case string:
+		typeStr = "string"
+	case []string:
+		typeStr = "list"
+	case map[string]float64:
+		typeStr = "zset"
+	default:
+		typeStr = "unknown"
+	}
+	writeBulkString(conn, typeStr)
 }
