@@ -1013,7 +1013,7 @@ func handleXRANGE(conn net.Conn, arr []any, store *Store) {
 
 // handleXREAD implements: XREAD STREAMS key [key ...] id [id ...]
 func handleXREAD(conn net.Conn, arr []any, store *Store) {
-	if len(arr) < 5 {
+	if len(arr) < 4 {
 		writeErr(conn, "wrong number of arguments for 'XREAD' command")
 		return
 	}
