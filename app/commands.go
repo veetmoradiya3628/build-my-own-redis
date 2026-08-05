@@ -1017,16 +1017,49 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 		writeErr(conn, "wrong number of arguments for 'XREAD' command")
 		return
 	}
-	// expect arr[1] == "STREAMS"
-	sub, ok := asString(arr[1])
-	if !ok || strings.ToUpper(sub) != "STREAMS" {
+
+	idx := 1
+	block := false
+	var timeoutMs int
+
+	token1, ok := asString(arr[idx])
+	if !ok {
 		writeErr(conn, "syntax error")
 		return
 	}
-	// remaining: keys then ids
-	rem := arr[2:]
-	// need even split: keys count = ids count
-	if len(rem)%2 != 0 {
+
+	if strings.ToUpper(token1) == "BLOCK" {
+		// Expect timeout then STREAMS
+		if len(arr) < 6 {
+			writeErr(conn, "wrong number of arguments for 'XREAD' command")
+			return
+		}
+		timeoutStr, ok := asString(arr[idx+1])
+		if !ok {
+			writeErr(conn, "syntax error")
+			return
+		}
+		t, err := strconv.Atoi(timeoutStr)
+		if err != nil {
+			writeErr(conn, "syntax error")
+			return
+		}
+		block = true
+		timeoutMs = t
+		idx += 2
+	}
+
+	// next token must be STREAMS
+	token2, ok := asString(arr[idx])
+	if !ok || strings.ToUpper(token2) != "STREAMS" {
+		writeErr(conn, "syntax error")
+		return
+	}
+	idx++
+
+	// remaining tokens: keys then ids (split evenly)
+	rem := arr[idx:]
+	if len(rem) == 0 || len(rem)%2 != 0 {
 		writeErr(conn, "syntax error")
 		return
 	}
@@ -1050,14 +1083,57 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 		}
 	}
 
+	// Try immediate read first
 	data, err := store.XRead(keys, ids)
 	if err != nil {
 		writeErr(conn, err.Error())
 		return
 	}
 
+	hasAny := false
+	for _, k := range keys {
+		if len(data[k]) > 0 {
+			hasAny = true
+			break
+		}
+	}
+
+	if !hasAny && block {
+		// Register a shared waiter channel on each key and wait for notification or timeout
+		ch := make(chan string, 1)
+		for _, k := range keys {
+			store.mu.Lock()
+			store.waiters[k] = append(store.waiters[k], ch)
+			store.mu.Unlock()
+		}
+
+		timedOut := false
+		select {
+		case <-time.After(time.Duration(timeoutMs) * time.Millisecond):
+			timedOut = true
+		case <-ch:
+			// awakened
+		}
+
+		// Clean up the waiter from all keys
+		for _, k := range keys {
+			store.CleanUpExpiredKeyWaiter(k, ch)
+		}
+
+		if timedOut {
+			conn.Write([]byte("*-1\r\n"))
+			return
+		}
+
+		// Re-read after wakeup
+		data, err = store.XRead(keys, ids)
+		if err != nil {
+			writeErr(conn, err.Error())
+			return
+		}
+	}
+
 	// Build RESP response: array of streams
-	// Outer array length = number of streams (keys)
 	_, _ = conn.Write([]byte("*" + strconv.Itoa(len(keys)) + "\r\n"))
 	for _, k := range keys {
 		entries := data[k]

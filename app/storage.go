@@ -715,6 +715,18 @@ func (s *Store) XAdd(key string, id string, fields []string) (string, error) {
 		s.cache[key] = entries
 	}
 	s.markDirty(key)
+
+	// Notify any waiters (blocking XREAD) waiting on this key.
+	if queues, exists := s.waiters[key]; exists && len(queues) > 0 {
+		for _, ch := range queues {
+			// deliver asynchronously to avoid blocking while holding lock
+			go func(c chan string) {
+				c <- finalID
+			}(ch)
+		}
+		delete(s.waiters, key)
+	}
+
 	return finalID, nil
 }
 
