@@ -1108,11 +1108,16 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 		}
 
 		timedOut := false
-		select {
-		case <-time.After(time.Duration(timeoutMs) * time.Millisecond):
-			timedOut = true
-		case <-ch:
-			// awakened
+		if timeoutMs == 0 {
+			// block indefinitely until notified
+			<-ch
+		} else {
+			select {
+			case <-time.After(time.Duration(timeoutMs) * time.Millisecond):
+				timedOut = true
+			case <-ch:
+				// awakened
+			}
 		}
 
 		// Clean up the waiter from all keys
