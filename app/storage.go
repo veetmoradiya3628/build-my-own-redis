@@ -634,10 +634,24 @@ func (s *Store) IsDirty(conn net.Conn) bool {
 // XAdd appends an entry to a stream stored at key. If the stream doesn't
 // exist, it is created. We store streams as a slice of StreamEntry.
 func (s *Store) XAdd(key string, id string, fields map[string]string) (string, error) {
-	// IDs can be explicit (<ms>-<seq>) or auto-sequence (<ms>-*) in this stage.
-	newMs, newSeq, seqIsStar, err := parseMaybeStarID(id)
-	if err != nil {
-		return "", fmt.Errorf("invalid stream ID specified")
+	// IDs can be:
+	//  - explicit (<ms>-<seq>)
+	//  - auto-sequence (<ms>-*)
+	//  - full auto (*) -> generate current ms and auto-sequence
+	var newMs int64
+	var newSeq int64
+	var seqIsStar bool
+
+	if id == "*" {
+		newMs = time.Now().UnixNano() / int64(time.Millisecond)
+		newSeq = 0
+		seqIsStar = true
+	} else {
+		var err error
+		newMs, newSeq, seqIsStar, err = parseMaybeStarID(id)
+		if err != nil {
+			return "", fmt.Errorf("invalid stream ID specified")
+		}
 	}
 
 	s.mu.Lock()
