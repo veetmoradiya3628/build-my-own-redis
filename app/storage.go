@@ -787,3 +787,44 @@ func parseIDOptionalSeq(id string, isStart bool) (int64, int64, error) {
 	}
 	return ms, int64(^uint64(0)>>1), nil // MaxInt64
 }
+
+// XRead reads entries strictly greater than the provided ID (exclusive) for each stream.
+// keys and ids slices must have same length.
+func (s *Store) XRead(keys []string, ids []string) (map[string][]StreamEntry, error) {
+	if len(keys) != len(ids) {
+		return nil, fmt.Errorf("mismatched keys and ids")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string][]StreamEntry)
+	for i, key := range keys {
+		startMs, startSeq, err := parseIDOptionalSeq(ids[i], true)
+		if err != nil {
+			return nil, err
+		}
+
+		existing, ok := s.cache[key]
+		if !ok {
+			result[key] = []StreamEntry{}
+			continue
+		}
+		entries, isStream := existing.([]StreamEntry)
+		if !isStream {
+			return nil, fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")
+		}
+
+		var out []StreamEntry
+		for _, e := range entries {
+			ems, eseq, err := parseStreamID(e.ID)
+			if err != nil {
+				continue
+			}
+			if ems > startMs || (ems == startMs && eseq > startSeq) {
+				out = append(out, e)
+			}
+		}
+		result[key] = out
+	}
+	return result, nil
+}

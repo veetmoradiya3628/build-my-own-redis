@@ -208,6 +208,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleTYPE(conn, arr, store)
 	case "XRANGE":
 		handleXRANGE(conn, arr, store)
+	case "XREAD":
+		handleXREAD(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -1005,6 +1007,73 @@ func handleXRANGE(conn net.Conn, arr []any, store *Store) {
 		// fields as array of bulk strings
 		if err := writeArrayResponse(conn, e.Fields); err != nil {
 			return
+		}
+	}
+}
+
+// handleXREAD implements: XREAD STREAMS key [key ...] id [id ...]
+func handleXREAD(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 5 {
+		writeErr(conn, "wrong number of arguments for 'XREAD' command")
+		return
+	}
+	// expect arr[1] == "STREAMS"
+	sub, ok := asString(arr[1])
+	if !ok || strings.ToUpper(sub) != "STREAMS" {
+		writeErr(conn, "syntax error")
+		return
+	}
+	// remaining: keys then ids
+	rem := arr[2:]
+	// need even split: keys count = ids count
+	if len(rem)%2 != 0 {
+		writeErr(conn, "syntax error")
+		return
+	}
+	n := len(rem) / 2
+	keys := make([]string, 0, n)
+	ids := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		if k, ok := asString(rem[i]); ok {
+			keys = append(keys, k)
+		} else {
+			writeErr(conn, "XREAD keys must be strings")
+			return
+		}
+	}
+	for i := n; i < 2*n; i++ {
+		if id, ok := asString(rem[i]); ok {
+			ids = append(ids, id)
+		} else {
+			writeErr(conn, "XREAD ids must be strings")
+			return
+		}
+	}
+
+	data, err := store.XRead(keys, ids)
+	if err != nil {
+		writeErr(conn, err.Error())
+		return
+	}
+
+	// Build RESP response: array of streams
+	// Outer array length = number of streams (keys)
+	_, _ = conn.Write([]byte("*" + strconv.Itoa(len(keys)) + "\r\n"))
+	for _, k := range keys {
+		entries := data[k]
+		// Each stream: array of 2 elements: key, entries array
+		_, _ = conn.Write([]byte("*2\r\n"))
+		writeBulkString(conn, k)
+		// entries array
+		_, _ = conn.Write([]byte("*" + strconv.Itoa(len(entries)) + "\r\n"))
+		for _, e := range entries {
+			// entry array: [id, [fields...]]
+			_, _ = conn.Write([]byte("*2\r\n"))
+			writeBulkString(conn, e.ID)
+			// fields array
+			if err := writeArrayResponse(conn, e.Fields); err != nil {
+				return
+			}
 		}
 	}
 }
