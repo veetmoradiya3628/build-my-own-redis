@@ -44,6 +44,13 @@ func writeInteger(conn net.Conn, value int) {
 	}
 }
 
+func writeString(conn net.Conn, value string) {
+	_, _ = conn.Write([]byte("+" + value + "\r\n"))
+	if addr := conn.RemoteAddr(); addr != nil {
+		slog.Debug("writeString", "remote", addr.String(), "value", value)
+	}
+}
+
 func writeArrayResponse(conn net.Conn, items []string) error {
 	var builder strings.Builder
 	builder.WriteString("*")
@@ -209,7 +216,7 @@ func handlePING(conn net.Conn, arr []any, store *Store) {
 		if store.IsSubscribed(conn) {
 			writeArrayResponse(conn, []string{"pong", ""})
 		} else {
-			conn.Write([]byte("+PONG\r\n"))
+			writeString(conn, "PONG")
 		}
 	}
 }
@@ -221,7 +228,7 @@ func handleECHO(conn net.Conn, arr []any) {
 		return
 	}
 	if arg, ok := asString(arr[1]); ok {
-		writeBulkString(conn, arg)
+		writeString(conn, arg)
 	} else {
 		writeNullBulk(conn)
 	}
@@ -902,7 +909,7 @@ func handleTYPE(conn net.Conn, arr []any, store *Store) {
 	key, _ := asString(arr[1])
 	val, exists := store.Get(key)
 	if !exists {
-		writeBulkString(conn, "none")
+		writeString(conn, "none")
 		return
 	}
 	var typeStr string
@@ -916,5 +923,5 @@ func handleTYPE(conn net.Conn, arr []any, store *Store) {
 	default:
 		typeStr = "unknown"
 	}
-	writeBulkString(conn, typeStr)
+	writeString(conn, typeStr)
 }
