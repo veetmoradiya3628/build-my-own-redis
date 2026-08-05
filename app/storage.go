@@ -32,7 +32,8 @@ type ZSetNode struct {
 // StreamEntry represents a single entry in a Redis stream.
 type StreamEntry struct {
 	ID     string
-	Fields map[string]string
+	// Fields stored as a flat slice to preserve insertion order: [field1, value1, field2, value2, ...]
+	Fields []string
 }
 
 // parseStreamID parses an ID of the form <ms>-<seq> into two integers.
@@ -633,7 +634,8 @@ func (s *Store) IsDirty(conn net.Conn) bool {
 
 // XAdd appends an entry to a stream stored at key. If the stream doesn't
 // exist, it is created. We store streams as a slice of StreamEntry.
-func (s *Store) XAdd(key string, id string, fields map[string]string) (string, error) {
+func (s *Store) XAdd(key string, id string, fields []string) (string, error) {
+	
 	// IDs can be:
 	//  - explicit (<ms>-<seq>)
 	//  - auto-sequence (<ms>-*)
@@ -703,7 +705,7 @@ func (s *Store) XAdd(key string, id string, fields map[string]string) (string, e
 	// Final ID
 	finalID := fmt.Sprintf("%d-%d", newMs, finalSeq)
 
-	// Append entry
+	// Append entry using provided ordered flat slice
 	if existing, ok := s.cache[key]; !ok {
 		entries := []StreamEntry{{ID: finalID, Fields: fields}}
 		s.cache[key] = entries
@@ -714,4 +716,66 @@ func (s *Store) XAdd(key string, id string, fields map[string]string) (string, e
 	}
 	s.markDirty(key)
 	return finalID, nil
+}
+
+// XRange retrieves entries in the inclusive range [startID, endID].
+// startID and endID can omit the sequence number.
+func (s *Store) XRange(key string, startID string, endID string) ([]StreamEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	existing, ok := s.cache[key]
+	if !ok {
+		return []StreamEntry{}, nil
+	}
+	entries, isStream := existing.([]StreamEntry)
+	if !isStream {
+		return nil, fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")
+	}
+
+	startMs, startSeq, err := parseIDOptionalSeq(startID, true)
+	if err != nil {
+		return nil, err
+	}
+	endMs, endSeq, err := parseIDOptionalSeq(endID, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []StreamEntry
+	for _, e := range entries {
+		ems, eseq, err := parseStreamID(e.ID)
+		if err != nil {
+			continue
+		}
+		// compare e >= start && e <= end
+		if ems < startMs || (ems == startMs && eseq < startSeq) {
+			continue
+		}
+		if ems > endMs || (ems == endMs && eseq > endSeq) {
+			continue
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+// parseIDOptionalSeq parses an ID where the sequence number may be omitted.
+// For start IDs (isStart=true) the missing seq defaults to 0.
+// For end IDs (isStart=false) the missing seq defaults to MaxInt64.
+func parseIDOptionalSeq(id string, isStart bool) (int64, int64, error) {
+	if strings.Contains(id, "-") {
+		// normal id with seq
+		ms, seq, err := parseStreamID(id)
+		return ms, seq, err
+	}
+	// only ms provided
+	ms, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	if isStart {
+		return ms, 0, nil
+	}
+	return ms, int64(^uint64(0)>>1), nil // MaxInt64
 }

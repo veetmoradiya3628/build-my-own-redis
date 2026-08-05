@@ -206,6 +206,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleUNWATCH(conn, arr, store)
 	case "TYPE":
 		handleTYPE(conn, arr, store)
+	case "XRANGE":
+		handleXRANGE(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -945,7 +947,8 @@ func handleXADD(conn net.Conn, arr []any, store *Store) {
 		return
 	}
 
-	fields := make(map[string]string)
+	// Build ordered flat fields slice: [field1, value1, field2, value2, ...]
+	fieldsSlice := make([]string, 0, (len(arr)-3))
 	for i := 3; i < len(arr); i += 2 {
 		f, ok1 := asString(arr[i])
 		v, ok2 := asString(arr[i+1])
@@ -953,7 +956,7 @@ func handleXADD(conn net.Conn, arr []any, store *Store) {
 			writeErr(conn, "XADD fields and values must be strings")
 			return
 		}
-		fields[f] = v
+		fieldsSlice = append(fieldsSlice, f, v)
 	}
 
 	// If key exists and is not a stream, return WRONGTYPE error
@@ -965,11 +968,43 @@ func handleXADD(conn net.Conn, arr []any, store *Store) {
 	}
 
 	// Append to stream
-	newID, err := store.XAdd(key, id, fields)
+	newID, err := store.XAdd(key, id, fieldsSlice)
 	if err != nil {
 		writeErr(conn, err.Error())
 		return
 	}
 	// Return the ID as a bulk string
 	writeBulkString(conn, newID)
+}
+
+// handleXRANGE retrieves entries between start and end IDs (inclusive).
+// Syntax: XRANGE key start end
+func handleXRANGE(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 4 {
+		writeErr(conn, "wrong number of arguments for 'XRANGE' command")
+		return
+	}
+	key, _ := asString(arr[1])
+	startID, _ := asString(arr[2])
+	endID, _ := asString(arr[3])
+
+	entries, err := store.XRange(key, startID, endID)
+	if err != nil {
+		writeErr(conn, err.Error())
+		return
+	}
+
+	// Write outer array header
+	_, _ = conn.Write([]byte("*" + strconv.Itoa(len(entries)) + "\r\n"))
+
+	for _, e := range entries {
+		// Each entry is an array of two elements
+		_, _ = conn.Write([]byte("*2\r\n"))
+		// ID as bulk string
+		writeBulkString(conn, e.ID)
+		// fields as array of bulk strings
+		if err := writeArrayResponse(conn, e.Fields); err != nil {
+			return
+		}
+	}
 }
