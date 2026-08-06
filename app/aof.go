@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func ensureAOFManifest(config ServerConfig, aofFilePath string) (string, error) {
@@ -44,4 +46,94 @@ func ensureAOFFilePath(config ServerConfig) (string, error) {
 	}
 
 	return aofFilePath, nil
+}
+
+func readAOFFilePathFromManifest(config ServerConfig) (string, error) {
+	if config.appendfilename == "" {
+		return "", fmt.Errorf("appendfilename must be provided when appendonly is enabled")
+	}
+
+	manifestPath := filepath.Join(config.dir, config.appenddirname, config.appendfilename+".manifest")
+	file, err := os.Open(manifestPath)
+	if err != nil {
+		return "", fmt.Errorf("open append-only manifest: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) >= 6 && parts[0] == "file" && parts[2] == "seq" && parts[4] == "type" {
+			filename := parts[1]
+			if filename == "" {
+				return "", fmt.Errorf("manifest entry is missing file name")
+			}
+			return filepath.Join(config.dir, config.appenddirname, filename), nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("read append-only manifest: %w", err)
+	}
+
+	return "", fmt.Errorf("no active AOF file found in manifest")
+}
+
+func appendRESPCommandToAOF(config ServerConfig, arr []any) error {
+	aofFilePath, err := readAOFFilePathFromManifest(config)
+	if err != nil {
+		return err
+	}
+
+	file, err := os.OpenFile(aofFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open append-only file: %w", err)
+	}
+	defer file.Close()
+
+	payload := encodeRESPArray(arr)
+	if _, err := file.Write(payload); err != nil {
+		return fmt.Errorf("append to append-only file: %w", err)
+	}
+
+	if config.appendfsync == "always" {
+		if err := file.Sync(); err != nil {
+			return fmt.Errorf("fsync append-only file: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func encodeRESPArray(arr []any) []byte {
+	var builder strings.Builder
+	builder.WriteString("*")
+	builder.WriteString(fmt.Sprintf("%d", len(arr)))
+	builder.WriteString("\r\n")
+	for _, item := range arr {
+		switch v := item.(type) {
+		case string:
+			builder.WriteString("$")
+			builder.WriteString(fmt.Sprintf("%d", len(v)))
+			builder.WriteString("\r\n")
+			builder.WriteString(v)
+			builder.WriteString("\r\n")
+		case []any:
+			builder.WriteString(string(encodeRESPArray(v)))
+		case nil:
+			builder.WriteString("$-1\r\n")
+		default:
+			text := fmt.Sprintf("%v", v)
+			builder.WriteString("$")
+			builder.WriteString(fmt.Sprintf("%d", len(text)))
+			builder.WriteString("\r\n")
+			builder.WriteString(text)
+			builder.WriteString("\r\n")
+		}
+	}
+	return []byte(builder.String())
 }

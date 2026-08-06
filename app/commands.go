@@ -152,7 +152,7 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	case "ECHO":
 		handleECHO(conn, arr)
 	case "SET":
-		handleSET(conn, arr, store)
+		handleSET(conn, arr, store, config)
 	case "GET":
 		handleGET(conn, arr, store)
 	case "LPUSH":
@@ -250,7 +250,7 @@ func handleECHO(conn net.Conn, arr []any) {
 }
 
 // handleSET stores a key/value pair and supports optional EX/PX TTL.
-func handleSET(conn net.Conn, arr []any, store *Store) {
+func handleSET(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'SET' command")
 		return
@@ -260,11 +260,19 @@ func handleSET(conn net.Conn, arr []any, store *Store) {
 	if ttl, ok := parseTTL(arr); ok {
 		slog.Info("SET with TTL", "key", key, "ttl_ms", ttl)
 		store.SetWithTTL(key, value, ttl)
-		writeOK(conn)
-		return
+	} else {
+		slog.Debug("SET", "key", key)
+		store.Set(key, value)
 	}
-	slog.Debug("SET", "key", key)
-	store.Set(key, value)
+
+	if config.appendonly == "yes" {
+		if err := appendRESPCommandToAOF(config, arr); err != nil {
+			slog.Error("failed to append SET command to AOF", "err", err)
+			writeErr(conn, "ERR failed to append to AOF")
+			return
+		}
+	}
+
 	writeOK(conn)
 }
 
