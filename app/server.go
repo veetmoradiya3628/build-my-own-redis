@@ -12,7 +12,7 @@ import (
 type ServerConfig struct {
 	dir        		string
 	dbfilename 		string
-	appendonly 		bool
+	appendonly 		string
 	appenddirname 	string
 	appendfilename	string
 	appendfsync 	string

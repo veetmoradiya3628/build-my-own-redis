@@ -591,7 +591,7 @@ func handleCONFIG(conn net.Conn, arr []any, config ServerConfig) {
 			case "dbfilename":
 				value = config.dbfilename
 			case "appendonly":
-				value = strconv.FormatBool(config.appendonly)
+				value = config.appendonly
 			case "appenddirname":
 				value = config.appenddirname
 			case "appendfilename":
