@@ -210,6 +210,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleXRANGE(conn, arr, store)
 	case "XREAD":
 		handleXREAD(conn, arr, store)
+	case "GEOADD":
+		handleGEOADD(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -1226,4 +1228,13 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 			}
 		}
 	}
+}
+func handleGEOADD(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 5 || (len(arr)-2)%3 != 0 {
+		writeErr(conn, "wrong number of arguments for 'GEOADD' command")
+		return
+	}
+	
+	addedCount := 1
+	writeInteger(conn, addedCount)
 }
