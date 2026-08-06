@@ -1235,26 +1235,30 @@ func handleGEOADD(conn net.Conn, arr []any, store *Store) {
 		return
 	}
 
-	longitudeStr, _ := asString(arr[2])
-	latitudeStr, _ := asString(arr[3])
-	member, _ := asString(arr[4])
+	key, _ := asString(arr[1])
+	addedCount := 0
 
-	longitude, err1 := strconv.ParseFloat(longitudeStr, 64)
-	latitude, err2 := strconv.ParseFloat(latitudeStr, 64)
+	for i := 2; i < len(arr); i += 3 {
+		longitudeStr, _ := asString(arr[i])
+		latitudeStr, _ := asString(arr[i+1])
+		member, _ := asString(arr[i+2])
 
-	if err1 != nil || err2 != nil {
-		writeErr(conn, "invalid longitude or latitude")
-		return
+		longitude, err1 := strconv.ParseFloat(longitudeStr, 64)
+		latitude, err2 := strconv.ParseFloat(latitudeStr, 64)
+
+		if err1 != nil || err2 != nil {
+			writeErr(conn, "invalid longitude or latitude")
+			return
+		}
+
+		if longitude < -180 || longitude > 180 || latitude < -85.05112878 || latitude > 85.05112878 {
+			writeErr(conn, fmt.Sprintf("invalid longitude,latitude pair %.8f,%f", longitude, latitude))
+			return
+		}
+
+		slog.Debug("GEOADD", "key", key, "longitude", longitude, "latitude", latitude, "member", member)
+		addedCount += store.ZAdd(key, 0, member)
 	}
 
-	if longitude < -180 || longitude > 180 || latitude < -85.05112878 || latitude > 85.05112878 {
-		writeErr(conn, fmt.Sprintf("invalid longitude,latitude pair %.8f,%f", longitude, latitude))
-		return
-	}
-
-	slog.Debug("GEOADD", "longitude", longitude, "latitude", latitude, "member", member)
-
-	
-	addedCount := 1
 	writeInteger(conn, addedCount)
 }
