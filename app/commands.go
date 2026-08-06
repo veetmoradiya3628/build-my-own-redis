@@ -590,6 +590,14 @@ func handleCONFIG(conn net.Conn, arr []any, config ServerConfig) {
 				value = config.dir
 			case "dbfilename":
 				value = config.dbfilename
+			case "appendonly":
+				value = strconv.FormatBool(config.appendonly)
+			case "appenddirname":
+				value = config.appenddirname
+			case "appendfilename":
+				value = config.appendfilename
+			case "appendfsync":
+				value = config.appendfsync
 			default:
 				value = ""
 			}

@@ -10,8 +10,12 @@ import (
 )
 
 type ServerConfig struct {
-	dir        string
-	dbfilename string
+	dir        		string
+	dbfilename 		string
+	appendonly 		bool
+	appenddirname 	string
+	appendfilename	string
+	appendfsync 	string
 }
 
 func main() {
@@ -19,13 +23,21 @@ func main() {
 
 	dirFlag := flag.String("dir", "", "Directory where RDB files are stored")
 	dbFlag := flag.String("dbfilename", "", "Name of the RDB file name")
+	appendonlyFlag := flag.Bool("appendonly", false, "Enable append-only mode")
+	appenddirnameFlag := flag.String("appenddirname", "", "Directory where AOF files are stored")
+	appendfilenameFlag := flag.String("appendfilename", "", "Name of the AOF file")
+	appendfsyncFlag := flag.String("appendfsync", "everysec", "AOF fsync policy")
 	flag.Parse()
 
 	config := ServerConfig{
-		dir:        *dirFlag,
-		dbfilename: *dbFlag,
+		dir:         *dirFlag,
+		dbfilename:  *dbFlag,
+		appendonly:  *appendonlyFlag,
+		appenddirname:  *appenddirnameFlag,
+		appendfilename: *appendfilenameFlag,
+		appendfsync:  *appendfsyncFlag,
 	}
-	slog.Debug("Starting server", "dir", config.dir, "dbfilename", config.dbfilename)
+	slog.Debug("Starting server", "dir", config.dir, "dbfilename", config.dbfilename, "appendonly", config.appendonly, "appenddirname", config.appenddirname, "appendfilename", config.appendfilename, "appendfsync", config.appendfsync)
 
 	// 1. Check if both flags are provided
 	var initialData map[string]any
