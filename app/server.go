@@ -63,14 +63,21 @@ func main() {
 
 	// 2. Check if appendonly is enabled create the <dir>/<appenddirname> directory if it doesn't exist
 	if config.appendonly == "yes" {
-		aofPath := filepath.Join(config.appenddirname, config.appendfilename)
-		slog.Info("Append-only mode enabled", "aof_path", aofPath)
-		
-		if err := os.MkdirAll(config.appenddirname, 0755); err != nil {
+		aofDirPath := filepath.Join(config.dir, config.appenddirname)
+		if err := os.MkdirAll(aofDirPath, 0755); err != nil {
 			slog.Error("failed to create append-only directory", "err", err)
 			os.Exit(1)
 		}
-		slog.Info("Append-only directory ensured", "path", config.appenddirname)
+		slog.Info("Append-only directory ensured", "path", aofDirPath)
+
+		// aofPath := filepath.Join(config.appenddirname, config.appendfilename)
+		// slog.Info("Append-only mode enabled", "aof_path", aofPath)
+		
+		// if err := os.MkdirAll(config.appenddirname, 0755); err != nil {
+		// 	slog.Error("failed to create append-only directory", "err", err)
+		// 	os.Exit(1)
+		// }
+		// slog.Info("Append-only directory ensured", "path", config.appenddirname)
 	} else {
 		slog.Info("Append-only mode disabled")
 	}
