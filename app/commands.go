@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -214,6 +215,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleGEOADD(conn, arr, store)
 	case "GEOPOS":
 		handleGEOPOS(conn, arr, store)
+	case "GEODIST":
+		handleGEODIST(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -1296,4 +1299,39 @@ func handleGEOPOS(conn net.Conn, arr []any, store *Store) {
 		writeBulkString(conn, strconv.FormatFloat(coordinates.Longitude, 'f', -1, 64))
 		writeBulkString(conn, strconv.FormatFloat(coordinates.Latitude, 'f', -1, 64))
 	}
+}
+
+func handleGEODIST(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 4 {
+		writeErr(conn, "wrong number of arguments for 'GEODIST' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+	member1, _ := asString(arr[2])
+	member2, _ := asString(arr[3])
+
+	score1, found1 := store.getZscoreValue(key, member1)
+	score2, found2 := store.getZscoreValue(key, member2)
+	if !found1 || !found2 {
+		writeNullBulk(conn)
+		return
+	}
+
+	coord1 := decode(uint64(score1))
+	coord2 := decode(uint64(score2))
+
+	latitude1 := coord1.Latitude * (math.Pi / 180)
+	longitude1 := coord1.Longitude * (math.Pi / 180)
+	latitude2 := coord2.Latitude * (math.Pi / 180)
+	longitude2 := coord2.Longitude * (math.Pi / 180)
+
+	deltaLat := latitude2 - latitude1
+	deltaLon := longitude2 - longitude1
+
+	a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) + math.Cos(latitude1)*math.Cos(latitude2)*math.Sin(deltaLon/2)*math.Sin(deltaLon/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	distance := 6372797.560856 * c
+
+	writeBulkString(conn, strconv.FormatFloat(distance, 'f', -1, 64))
 }
