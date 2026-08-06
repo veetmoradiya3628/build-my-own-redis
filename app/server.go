@@ -70,14 +70,25 @@ func main() {
 		}
 		slog.Info("Append-only directory ensured", "path", aofDirPath)
 
-		// aofPath := filepath.Join(config.appenddirname, config.appendfilename)
-		// slog.Info("Append-only mode enabled", "aof_path", aofPath)
+		if config.appendfilename == "" {
+			slog.Error("appendfilename must be provided when appendonly is enabled")
+			os.Exit(1)
+		}
+
+		aofFilePath := filepath.Join(config.appenddirname, config.appendfilename + ".1.incr.aof")
 		
-		// if err := os.MkdirAll(config.appenddirname, 0755); err != nil {
-		// 	slog.Error("failed to create append-only directory", "err", err)
-		// 	os.Exit(1)
-		// }
-		// slog.Info("Append-only directory ensured", "path", config.appenddirname)
+		if err := os.MkdirAll(filepath.Dir(aofFilePath), 0755); err != nil {
+			slog.Error("failed to create directory for append-only file", "err", err)
+			os.Exit(1)
+		}
+
+		file, err := os.OpenFile(aofFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			slog.Error("failed to open append-only file", "err", err)
+			os.Exit(1)
+		}
+		defer file.Close()
+		slog.Info("Append-only mode enabled", "file", aofFilePath)
 	} else {
 		slog.Info("Append-only mode disabled")
 	}
