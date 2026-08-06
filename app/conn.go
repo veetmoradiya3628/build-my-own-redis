@@ -9,6 +9,9 @@ import (
 
 // writeBulkString writes a RESP Bulk String response to conn.
 func writeBulkString(conn net.Conn, s string) error {
+	if conn == nil {
+		return nil
+	}
 	_, err := fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(s), s)
 	if err != nil {
 		slog.Error("failed to write bulk string", "err", err)

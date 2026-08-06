@@ -8,6 +8,43 @@ import (
 	"strings"
 )
 
+func replayAOFCommands(config ServerConfig, store *Store) error {
+	if config.appendonly != "yes" {
+		return nil
+	}
+
+	aofFilePath, err := readAOFFilePathFromManifest(config)
+	if err != nil {
+		return err
+	}
+
+	file, err := os.Open(aofFilePath)
+	if err != nil {
+		return fmt.Errorf("open append-only file for replay: %w", err)
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	for {
+		val, err := ParseRESP(reader)
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return fmt.Errorf("parse append-only file: %w", err)
+		}
+
+		arr, ok := val.([]any)
+		if !ok || len(arr) == 0 {
+			continue
+		}
+
+		handleCommand(nil, arr, store, config)
+	}
+
+	return nil
+}
+
 func ensureAOFManifest(config ServerConfig, aofFilePath string) (string, error) {
 	if config.appendfilename == "" {
 		return "", fmt.Errorf("appendfilename must be provided when appendonly is enabled")

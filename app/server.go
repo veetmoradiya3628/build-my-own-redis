@@ -93,6 +93,13 @@ func main() {
 	// Update NewStore call
 	store := NewStore(initialData, initialExpiry)
 
+	if config.appendonly == "yes" {
+		if err := replayAOFCommands(config, store); err != nil {
+			slog.Error("failed to replay append-only file", "err", err)
+			os.Exit(1)
+		}
+	}
+
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
 		slog.Error("failed to bind to port 6379", "err", err)

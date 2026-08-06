@@ -18,6 +18,9 @@ func asString(v any) (string, bool) {
 
 // Helper: write common replies
 func writeOK(conn net.Conn) {
+	if conn == nil {
+		return
+	}
 	_, _ = conn.Write([]byte("+OK\r\n"))
 	if addr := conn.RemoteAddr(); addr != nil {
 		slog.Debug("writeOK", "remote", addr.String())
@@ -25,6 +28,9 @@ func writeOK(conn net.Conn) {
 }
 
 func writeErr(conn net.Conn, msg string) {
+	if conn == nil {
+		return
+	}
 	_, _ = conn.Write([]byte("-ERR " + msg + "\r\n"))
 	if addr := conn.RemoteAddr(); addr != nil {
 		slog.Warn("writeErr", "remote", addr.String(), "msg", msg)
@@ -32,6 +38,9 @@ func writeErr(conn net.Conn, msg string) {
 }
 
 func writeNullBulk(conn net.Conn) {
+	if conn == nil {
+		return
+	}
 	_, _ = conn.Write([]byte("$-1\r\n"))
 	if addr := conn.RemoteAddr(); addr != nil {
 		slog.Debug("writeNullBulk", "remote", addr.String())
@@ -39,6 +48,9 @@ func writeNullBulk(conn net.Conn) {
 }
 
 func writeInteger(conn net.Conn, value int) {
+	if conn == nil {
+		return
+	}
 	_, _ = conn.Write([]byte(":" + strconv.Itoa(value) + "\r\n"))
 	if addr := conn.RemoteAddr(); addr != nil {
 		slog.Debug("writeInteger", "remote", addr.String(), "value", value)
@@ -46,6 +58,9 @@ func writeInteger(conn net.Conn, value int) {
 }
 
 func writeString(conn net.Conn, value string) {
+	if conn == nil {
+		return
+	}
 	_, _ = conn.Write([]byte("+" + value + "\r\n"))
 	if addr := conn.RemoteAddr(); addr != nil {
 		slog.Debug("writeString", "remote", addr.String(), "value", value)
@@ -53,6 +68,9 @@ func writeString(conn net.Conn, value string) {
 }
 
 func writeArrayResponse(conn net.Conn, items []string) error {
+	if conn == nil {
+		return nil
+	}
 	var builder strings.Builder
 	builder.WriteString("*")
 	builder.WriteString(strconv.Itoa(len(items)))
@@ -73,6 +91,20 @@ func writeArrayResponse(conn net.Conn, items []string) error {
 		}
 	}
 	return err
+}
+
+func persistWriteCommand(conn net.Conn, config ServerConfig, arr []any) bool {
+	if conn == nil || config.appendonly != "yes" {
+		return true
+	}
+
+	if err := appendRESPCommandToAOF(config, arr); err != nil {
+		slog.Error("failed to append command to AOF", "err", err, "cmd", arr[0])
+		writeErr(conn, "ERR failed to append to AOF")
+		return false
+	}
+
+	return true
 }
 
 // parseTTL checks for EX/PX options in SET arguments and returns
@@ -117,13 +149,15 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 
 	// Log the incoming command for debugging/tracing.
 	remote := "unknown"
-	if addr := conn.RemoteAddr(); addr != nil {
-		remote = addr.String()
+	if conn != nil {
+		if addr := conn.RemoteAddr(); addr != nil {
+			remote = addr.String()
+		}
 	}
 	slog.Debug("handleCommand", "remote", remote, "raw_cmd", cmd)
 
 	// Intercept commands if the client is in Subscribed mode
-	if store.IsSubscribed(conn) {
+	if conn != nil && store.IsSubscribed(conn) {
 		switch cmd {
 		case "SUBSCRIBE", "UNSUBSCRIBE", "PSUBSCRIBE", "PUNSUBSCRIBE", "PING", "QUIT", "RESET":
 		default:
@@ -134,14 +168,16 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	}
 
 	// Intercept commands if the client is in a Transaction (MULTI) block
-	if store.IsInTx(conn) {
+	if conn != nil && store.IsInTx(conn) {
 		switch cmd {
 		case "EXEC", "DISCARD", "MULTI", "QUIT", "WATCH":
 			// Let these commands pass through to be handled normally
 		default:
 			// Queue the command and return +QUEUED
 			store.QueueCommand(conn, arr)
-			conn.Write([]byte("+QUEUED\r\n"))
+			if conn != nil {
+				conn.Write([]byte("+QUEUED\r\n"))
+			}
 			return
 		}
 	}
@@ -156,25 +192,25 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	case "GET":
 		handleGET(conn, arr, store)
 	case "LPUSH":
-		handleLPUSH(conn, arr, store)
+		handleLPUSH(conn, arr, store, config)
 	case "RPUSH":
-		handleRPUSH(conn, arr, store)
+		handleRPUSH(conn, arr, store, config)
 	case "LRANGE":
 		handleLRANGE(conn, arr, store)
 	case "LLEN":
 		handleLLEN(conn, arr, store)
 	case "LPOP":
-		handleLPOP(conn, arr, store)
+		handleLPOP(conn, arr, store, config)
 	case "RPOP":
-		handleRPOP(conn, arr, store)
+		handleRPOP(conn, arr, store, config)
 	case "BLPOP":
-		handleBLPOP(conn, arr, store)
+		handleBLPOP(conn, arr, store, config)
 	case "CONFIG":
 		handleCONFIG(conn, arr, config)
 	case "KEYS":
 		handleKEYS(conn, arr, store)
 	case "ZADD":
-		handleZADD(conn, arr, store)
+		handleZADD(conn, arr, store, config)
 	case "ZRANGE":
 		handleZRANGE(conn, arr, store)
 	case "ZRANK":
@@ -182,7 +218,7 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	case "ZCARD":
 		handleZCARD(conn, arr, store)
 	case "XADD":
-		handleXADD(conn, arr, store)
+		handleXADD(conn, arr, store, config)
 	case "ZSCORE":
 		handleZSCORE(conn, arr, store)
 	case "ZREM":
@@ -194,7 +230,7 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	case "UNSUBSCRIBE":
 		handleUNSUBSCRIBE(conn, arr, store)
 	case "INCR":
-		handleINCR(conn, arr, store)
+		handleINCR(conn, arr, store, config)
 	case "MULTI":
 		handleMULTI(conn, arr, store)
 	case "EXEC":
@@ -212,7 +248,7 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	case "XREAD":
 		handleXREAD(conn, arr, store)
 	case "GEOADD":
-		handleGEOADD(conn, arr, store)
+		handleGEOADD(conn, arr, store, config)
 	case "GEOPOS":
 		handleGEOPOS(conn, arr, store)
 	case "GEODIST":
@@ -265,12 +301,8 @@ func handleSET(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 		store.Set(key, value)
 	}
 
-	if config.appendonly == "yes" {
-		if err := appendRESPCommandToAOF(config, arr); err != nil {
-			slog.Error("failed to append SET command to AOF", "err", err)
-			writeErr(conn, "ERR failed to append to AOF")
-			return
-		}
+	if !persistWriteCommand(conn, config, arr) {
+		return
 	}
 
 	writeOK(conn)
@@ -292,7 +324,7 @@ func handleGET(conn net.Conn, arr []any, store *Store) {
 	}
 }
 
-func handleLPUSH(conn net.Conn, arr []any, store *Store) {
+func handleLPUSH(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'LPUSH' command")
 		return
@@ -338,10 +370,14 @@ func handleLPUSH(conn net.Conn, arr []any, store *Store) {
 		store.LPush(key, remaining...)
 	}
 
+	if !persistWriteCommand(conn, config, arr) {
+		return
+	}
+
 	_, _ = conn.Write([]byte(":" + strconv.Itoa(expectedLen) + "\r\n"))
 }
 
-func handleRPUSH(conn net.Conn, arr []any, store *Store) {
+func handleRPUSH(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'RPUSH' command")
 		return
@@ -385,6 +421,10 @@ func handleRPUSH(conn net.Conn, arr []any, store *Store) {
 
 	if len(remaining) > 0 {
 		store.RPush(key, remaining...)
+	}
+
+	if !persistWriteCommand(conn, config, arr) {
+		return
 	}
 
 	_, _ = conn.Write([]byte(":" + strconv.Itoa(expectedLen) + "\r\n"))
@@ -453,7 +493,7 @@ func handleLLEN(conn net.Conn, arr []any, store *Store) {
 	}
 }
 
-func handleLPOP(conn net.Conn, arr []any, store *Store) {
+func handleLPOP(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'LPOP' command")
 		return
@@ -478,6 +518,9 @@ func handleLPOP(conn net.Conn, arr []any, store *Store) {
 			}
 			poppedValues := list[:cnt]
 			store.Set(key, list[cnt:])
+			if !persistWriteCommand(conn, config, arr) {
+				return
+			}
 			if len(poppedValues) == 1 {
 				writeBulkString(conn, poppedValues[0])
 			} else {
@@ -491,7 +534,7 @@ func handleLPOP(conn net.Conn, arr []any, store *Store) {
 	}
 }
 
-func handleRPOP(conn net.Conn, arr []any, store *Store) {
+func handleRPOP(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'RPOP' command")
 		return
@@ -505,6 +548,9 @@ func handleRPOP(conn net.Conn, arr []any, store *Store) {
 			}
 			poppedValue := list[len(list)-1]
 			store.Set(key, list[:len(list)-1])
+			if !persistWriteCommand(conn, config, arr) {
+				return
+			}
 			writeBulkString(conn, poppedValue)
 		} else {
 			writeErr(conn, "RPOP key is not a list")
@@ -515,7 +561,7 @@ func handleRPOP(conn net.Conn, arr []any, store *Store) {
 }
 
 // timeout is always 0 as of now so clean up logic not added for waiters
-func handleBLPOP(conn net.Conn, arr []any, store *Store) {
+func handleBLPOP(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 3 {
 		writeErr(conn, "wrong number of arguments for 'BLPOP' command")
 		return
@@ -541,6 +587,10 @@ func handleBLPOP(conn net.Conn, arr []any, store *Store) {
 		}
 
 		store.markDirty(key) // Notify watches for list pops!
+
+		if !persistWriteCommand(conn, config, arr) {
+			return
+		}
 
 		writeArrayResponse(conn, []string{key, val})
 		store.mu.Unlock()
@@ -643,7 +693,7 @@ func handleKEYS(conn net.Conn, arr []any, store *Store) {
 	}
 }
 
-func handleZADD(conn net.Conn, arr []any, store *Store) {
+func handleZADD(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 4 || len(arr)%2 != 0 {
 		writeErr(conn, "wrong number of arguments for 'ZADD' command")
 		return
@@ -664,6 +714,9 @@ func handleZADD(conn net.Conn, arr []any, store *Store) {
 		}
 
 		addedCount += store.ZAdd(key, score, member)
+	}
+	if !persistWriteCommand(conn, config, arr) {
+		return
 	}
 	writeInteger(conn, addedCount)
 }
@@ -810,7 +863,7 @@ func handlePUBLISH(conn net.Conn, arr []any, store *Store) {
 	publishCnt := store.PublishMessageOnChannel(channelName, messageContent)
 	writeInteger(conn, publishCnt)
 }
-func handleINCR(conn net.Conn, arr []any, store *Store) {
+func handleINCR(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 2 {
 		writeErr(conn, "wrong number of arguments for 'INCR' command")
 		return
@@ -825,6 +878,9 @@ func handleINCR(conn net.Conn, arr []any, store *Store) {
 	}
 
 	slog.Debug("INCR result", "key", key, "value", val)
+	if !persistWriteCommand(conn, config, arr) {
+		return
+	}
 	writeInteger(conn, val)
 }
 func handleMULTI(conn net.Conn, arr []any, store *Store) {
@@ -961,7 +1017,7 @@ func handleTYPE(conn net.Conn, arr []any, store *Store) {
 }
 
 // handleXADD appends an entry to a stream. Syntax: XADD key id field value [field value ...]
-func handleXADD(conn net.Conn, arr []any, store *Store) {
+func handleXADD(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 5 {
 		writeErr(conn, "wrong number of arguments for 'XADD' command")
 		return
@@ -1252,7 +1308,7 @@ func handleXREAD(conn net.Conn, arr []any, store *Store) {
 		}
 	}
 }
-func handleGEOADD(conn net.Conn, arr []any, store *Store) {
+func handleGEOADD(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	if len(arr) < 5 || (len(arr)-2)%3 != 0 {
 		writeErr(conn, "wrong number of arguments for 'GEOADD' command")
 		return
