@@ -212,6 +212,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleXREAD(conn, arr, store)
 	case "GEOADD":
 		handleGEOADD(conn, arr, store)
+	case "GEOPOS":
+		handleGEOPOS(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -1262,4 +1264,36 @@ func handleGEOADD(conn net.Conn, arr []any, store *Store) {
 	}
 
 	writeInteger(conn, addedCount)
+}
+
+func handleGEOPOS(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 3 {
+		writeErr(conn, "wrong number of arguments for 'GEOPOS' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+
+	if _, err := conn.Write([]byte("*" + strconv.Itoa(len(arr)-2) + "\r\n")); err != nil {
+		return
+	}
+
+	for i := 2; i < len(arr); i++ {
+		member, ok := asString(arr[i])
+		if !ok {
+			_, _ = conn.Write([]byte("*-1\r\n"))
+			continue
+		}
+
+		score, found := store.getZscoreValue(key, member)
+		if !found {
+			_, _ = conn.Write([]byte("*-1\r\n"))
+			continue
+		}
+
+		coordinates := decode(uint64(score))
+		_, _ = conn.Write([]byte("*2\r\n"))
+		writeBulkString(conn, strconv.FormatFloat(coordinates.Longitude, 'f', -1, 64))
+		writeBulkString(conn, strconv.FormatFloat(coordinates.Latitude, 'f', -1, 64))
+	}
 }
