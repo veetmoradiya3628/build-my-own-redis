@@ -1256,8 +1256,9 @@ func handleGEOADD(conn net.Conn, arr []any, store *Store) {
 			return
 		}
 
-		slog.Debug("GEOADD", "key", key, "longitude", longitude, "latitude", latitude, "member", member)
-		addedCount += store.ZAdd(key, 0, member)
+		score := float64(encode(latitude, longitude))
+		slog.Debug("GEOADD", "key", key, "longitude", longitude, "latitude", latitude, "member", member, "score", score)
+		addedCount += store.ZAdd(key, score, member)
 	}
 
 	writeInteger(conn, addedCount)
