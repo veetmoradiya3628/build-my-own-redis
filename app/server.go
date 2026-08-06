@@ -21,11 +21,17 @@ type ServerConfig struct {
 func main() {
 	slog.Info("Logs from your program will appear here!")
 
-	dirFlag := flag.String("dir", "", "Directory where RDB files are stored")
+	cwd, err := os.Getwd()
+	if err != nil {
+		slog.Error("failed to get current working directory", "err", err)
+		os.Exit(1)
+	}
+
+	dirFlag := flag.String("dir", cwd, "Directory where RDB files are stored")
 	dbFlag := flag.String("dbfilename", "", "Name of the RDB file name")
-	appendonlyFlag := flag.Bool("appendonly", false, "Enable append-only mode")
-	appenddirnameFlag := flag.String("appenddirname", "", "Directory where AOF files are stored")
-	appendfilenameFlag := flag.String("appendfilename", "", "Name of the AOF file")
+	appendonlyFlag := flag.String("appendonly", "no", "Enable append-only mode")
+	appenddirnameFlag := flag.String("appenddirname", "appendonlydir", "Directory where AOF files are stored")
+	appendfilenameFlag := flag.String("appendfilename", "appendonly.aof", "Name of the AOF file")
 	appendfsyncFlag := flag.String("appendfsync", "everysec", "AOF fsync policy")
 	flag.Parse()
 
