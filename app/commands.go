@@ -217,6 +217,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleGEOPOS(conn, arr, store)
 	case "GEODIST":
 		handleGEODIST(conn, arr, store)
+	case "GEOSEARCH":
+		handleGEOSEARCH(conn, arr, store)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -1320,18 +1322,106 @@ func handleGEODIST(conn net.Conn, arr []any, store *Store) {
 
 	coord1 := decode(uint64(score1))
 	coord2 := decode(uint64(score2))
+	distance := haversineDistanceMeters(coord1.Latitude, coord1.Longitude, coord2.Latitude, coord2.Longitude)
 
-	latitude1 := coord1.Latitude * (math.Pi / 180)
-	longitude1 := coord1.Longitude * (math.Pi / 180)
-	latitude2 := coord2.Latitude * (math.Pi / 180)
-	longitude2 := coord2.Longitude * (math.Pi / 180)
+	writeBulkString(conn, strconv.FormatFloat(distance, 'f', -1, 64))
+}
+
+func handleGEOSEARCH(conn net.Conn, arr []any, store *Store) {
+	if len(arr) < 8 {
+		writeErr(conn, "wrong number of arguments for 'GEOSEARCH' command")
+		return
+	}
+
+	key, _ := asString(arr[1])
+	if strings.ToUpper(asStringOrEmpty(arr[2])) != "FROMLONLAT" {
+		writeErr(conn, "unsupported GEOSEARCH mode")
+		return
+	}
+
+	longitude, err1 := strconv.ParseFloat(asStringOrEmpty(arr[3]), 64)
+	latitude, err2 := strconv.ParseFloat(asStringOrEmpty(arr[4]), 64)
+	if err1 != nil || err2 != nil {
+		writeErr(conn, "invalid longitude or latitude")
+		return
+	}
+
+	if strings.ToUpper(asStringOrEmpty(arr[5])) != "BYRADIUS" {
+		writeErr(conn, "unsupported GEOSEARCH option")
+		return
+	}
+
+	radius, err := strconv.ParseFloat(asStringOrEmpty(arr[6]), 64)
+	if err != nil {
+		writeErr(conn, "invalid radius")
+		return
+	}
+
+	unit := strings.ToLower(asStringOrEmpty(arr[7]))
+	factor := 1.0
+	switch unit {
+	case "km":
+		factor = 1000.0
+	case "mi":
+		factor = 1609.344
+	case "ft":
+		factor = 0.3048
+	case "m":
+		factor = 1.0
+	default:
+		factor = 1.0
+	}
+
+	maxDistance := radius * factor
+
+	value, found := store.Get(key)
+	if !found {
+		writeArrayResponse(conn, []string{})
+		return
+	}
+
+	zset, ok := value.(map[string]float64)
+	if !ok {
+		writeArrayResponse(conn, []string{})
+		return
+	}
+
+	matches := make([]string, 0)
+	for member, score := range zset {
+		coords := decode(uint64(score))
+		distance := haversineDistanceMeters(coords.Latitude, coords.Longitude, latitude, longitude)
+		if distance <= maxDistance {
+			matches = append(matches, member)
+		}
+	}
+
+	writeArrayResponse(conn, matches)
+}
+
+func haversineDistanceMeters(lat1, lon1, lat2, lon2 float64) float64 {
+	latitude1 := lat1 * (math.Pi / 180)
+	longitude1 := lon1 * (math.Pi / 180)
+	latitude2 := lat2 * (math.Pi / 180)
+	longitude2 := lon2 * (math.Pi / 180)
 
 	deltaLat := latitude2 - latitude1
 	deltaLon := longitude2 - longitude1
 
 	a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) + math.Cos(latitude1)*math.Cos(latitude2)*math.Sin(deltaLon/2)*math.Sin(deltaLon/2)
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	distance := 6372797.560856 * c
+	if a > 1 {
+		a = 1
+	}
+	if a < 0 {
+		a = 0
+	}
 
-	writeBulkString(conn, strconv.FormatFloat(distance, 'f', -1, 64))
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return 6372797.560856 * c
+}
+
+func asStringOrEmpty(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
