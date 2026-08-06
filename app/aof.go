@@ -6,6 +6,20 @@ import (
 	"path/filepath"
 )
 
+func ensureAOFManifest(config ServerConfig, aofFilePath string) (string, error) {
+	if config.appendfilename == "" {
+		return "", fmt.Errorf("appendfilename must be provided when appendonly is enabled")
+	}
+
+	manifestPath := filepath.Join(filepath.Dir(aofFilePath), config.appendfilename+".manifest")
+	manifestContent := fmt.Sprintf("file %s seq 1 type i\n", filepath.Base(aofFilePath))
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0o644); err != nil {
+		return "", fmt.Errorf("write append-only manifest: %w", err)
+	}
+
+	return manifestPath, nil
+}
+
 func ensureAOFDirectory(config ServerConfig) (string, error) {
 	aofDirPath := filepath.Join(config.dir, config.appenddirname)
 	if err := os.MkdirAll(aofDirPath, 0o755); err != nil {

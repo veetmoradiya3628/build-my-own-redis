@@ -78,7 +78,14 @@ func main() {
 			os.Exit(1)
 		}
 		defer file.Close()
-		slog.Info("Append-only mode enabled", "file", aofFilePath)
+
+		manifestPath, err := ensureAOFManifest(config, aofFilePath)
+		if err != nil {
+			slog.Error("failed to create append-only manifest", "err", err)
+			os.Exit(1)
+		}
+
+		slog.Info("Append-only mode enabled", "file", aofFilePath, "manifest", manifestPath)
 	} else {
 		slog.Info("Append-only mode disabled")
 	}
