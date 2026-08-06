@@ -59,6 +59,52 @@ func TestReadAOFFilePathFromManifest(t *testing.T) {
 	}
 }
 
+func TestEnsureAOFStatePreservesExistingManifest(t *testing.T) {
+	tempDir := t.TempDir()
+	aofDir := filepath.Join(tempDir, "blueberry")
+	if err := os.MkdirAll(aofDir, 0o755); err != nil {
+		t.Fatalf("mkdir aof dir: %v", err)
+	}
+
+	manifestPath := filepath.Join(aofDir, "raspberry.aof.manifest")
+	customManifest := "file strawberry.aof.1.incr.aof seq 1 type i\n"
+	if err := os.WriteFile(manifestPath, []byte(customManifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	customAOFPath := filepath.Join(aofDir, "strawberry.aof.1.incr.aof")
+	if err := os.WriteFile(customAOFPath, []byte{}, 0o644); err != nil {
+		t.Fatalf("write custom aof file: %v", err)
+	}
+
+	config := ServerConfig{
+		dir:           tempDir,
+		appenddirname: "blueberry",
+		appendfilename: "raspberry.aof",
+		appendonly:    "yes",
+	}
+
+	aofPath, manifest, err := ensureAOFState(config)
+	if err != nil {
+		t.Fatalf("ensureAOFState returned error: %v", err)
+	}
+
+	if aofPath != customAOFPath {
+		t.Fatalf("expected existing AOF path %q, got %q", customAOFPath, aofPath)
+	}
+	if manifest != manifestPath {
+		t.Fatalf("expected manifest path %q, got %q", manifestPath, manifest)
+	}
+
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if string(data) != customManifest {
+		t.Fatalf("expected manifest content %q, got %q", customManifest, string(data))
+	}
+}
+
 func TestReplayAOFCommands(t *testing.T) {
 	tempDir := t.TempDir()
 	aofDir := filepath.Join(tempDir, "blueberry")

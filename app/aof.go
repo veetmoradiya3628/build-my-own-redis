@@ -59,6 +59,51 @@ func ensureAOFManifest(config ServerConfig, aofFilePath string) (string, error) 
 	return manifestPath, nil
 }
 
+func ensureAOFState(config ServerConfig) (string, string, error) {
+	if config.appendfilename == "" {
+		return "", "", fmt.Errorf("appendfilename must be provided when appendonly is enabled")
+	}
+
+	if _, err := ensureAOFDirectory(config); err != nil {
+		return "", "", err
+	}
+
+	manifestPath := filepath.Join(config.dir, config.appenddirname, config.appendfilename+".manifest")
+	if _, err := os.Stat(manifestPath); err == nil {
+		aofFilePath, err := readAOFFilePathFromManifest(config)
+		if err != nil {
+			return "", "", err
+		}
+		if _, err := os.Stat(aofFilePath); err != nil {
+			if os.IsNotExist(err) {
+				file, err := os.OpenFile(aofFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+				if err != nil {
+					return "", "", fmt.Errorf("create append-only file from manifest: %w", err)
+				}
+				file.Close()
+			} else {
+				return "", "", fmt.Errorf("stat append-only file: %w", err)
+			}
+		}
+		return aofFilePath, manifestPath, nil
+	} else if !os.IsNotExist(err) {
+		return "", "", fmt.Errorf("stat append-only manifest: %w", err)
+	}
+
+	aofFilePath := filepath.Join(config.dir, config.appenddirname, config.appendfilename+".1.incr.aof")
+	file, err := os.OpenFile(aofFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return "", "", fmt.Errorf("create append-only file: %w", err)
+	}
+	file.Close()
+
+	if _, err := ensureAOFManifest(config, aofFilePath); err != nil {
+		return "", "", err
+	}
+
+	return aofFilePath, manifestPath, nil
+}
+
 func ensureAOFDirectory(config ServerConfig) (string, error) {
 	aofDirPath := filepath.Join(config.dir, config.appenddirname)
 	if err := os.MkdirAll(aofDirPath, 0o755); err != nil {

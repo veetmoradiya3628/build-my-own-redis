@@ -63,7 +63,7 @@ func main() {
 
 	// 2. Check if appendonly is enabled create the <dir>/<appenddirname> directory if it doesn't exist
 	if config.appendonly == "yes" {
-		aofFilePath, err := ensureAOFFilePath(config)
+		aofFilePath, manifestPath, err := ensureAOFState(config)
 		if err != nil {
 			slog.Error("failed to prepare append-only file", "err", err)
 			os.Exit(1)
@@ -71,20 +71,6 @@ func main() {
 
 		aofDirPath := filepath.Join(config.dir, config.appenddirname)
 		slog.Info("Append-only directory ensured", "path", aofDirPath)
-
-		file, err := os.OpenFile(aofFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		if err != nil {
-			slog.Error("failed to open append-only file", "err", err)
-			os.Exit(1)
-		}
-		defer file.Close()
-
-		manifestPath, err := ensureAOFManifest(config, aofFilePath)
-		if err != nil {
-			slog.Error("failed to create append-only manifest", "err", err)
-			os.Exit(1)
-		}
-
 		slog.Info("Append-only mode enabled", "file", aofFilePath, "manifest", manifestPath)
 	} else {
 		slog.Info("Append-only mode disabled")
