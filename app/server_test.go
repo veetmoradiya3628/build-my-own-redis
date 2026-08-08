@@ -23,7 +23,7 @@ func TestReplicaHandshakeSendsRESPPing(t *testing.T) {
 		defer conn.Close()
 
 		var payloads []string
-		for i := 0; i < 3; i++ {
+		for i := 0; i < 4; i++ {
 			buf := make([]byte, 256)
 			n, err := conn.Read(buf)
 			if err != nil {
@@ -57,6 +57,7 @@ func TestReplicaHandshakeSendsRESPPing(t *testing.T) {
 			"*1\r\n$4\r\nPING\r\n",
 			fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$%d\r\n6380\r\n", len("6380")),
 			"*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n",
+			"*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n",
 		}
 		if len(got) != len(wants) {
 			t.Fatalf("unexpected handshake payload count: got %d want %d", len(got), len(wants))

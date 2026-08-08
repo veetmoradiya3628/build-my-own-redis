@@ -76,8 +76,14 @@ func performReplicaHandshake(host, masterPort, replicaPort string) error {
 	if _, err = conn.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n")); err != nil {
 		return err
 	}
-	_, err = conn.Read(buf)
-	return err
+	if _, err = conn.Read(buf); err != nil {
+		return err
+	}
+
+	if _, err = conn.Write([]byte("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n")); err != nil {
+		return err
+	}
+	return nil
 }
 
 func main() {
