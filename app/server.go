@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -94,44 +97,49 @@ func parseReplicaTarget(replicaof string) (string, string, error) {
 	return "", "", fmt.Errorf("invalid replicaof target %q", replicaof)
 }
 
-func performReplicaHandshake(host, masterPort, replicaPort string) error {
+func performReplicaHandshake(host, masterPort, replicaPort string) (net.Conn, *bufio.Reader, error) {
 	if host == "" || masterPort == "" || replicaPort == "" {
-		return fmt.Errorf("invalid replica target")
+		return nil, nil, fmt.Errorf("invalid replica target")
 	}
 
 	conn, err := net.Dial("tcp", net.JoinHostPort(host, masterPort))
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	defer conn.Close()
 
+	// DO NOT close the connection here!
+	reader := bufio.NewReader(conn)
+
+	// PING
 	if _, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n")); err != nil {
-		return err
+		return nil, nil, err
+	}
+	if _, err = ParseRESP(reader); err != nil {
+		return nil, nil, err
 	}
 
-	buf := make([]byte, 64)
-	if _, err = conn.Read(buf); err != nil {
-		return err
-	}
-
+	// REPLCONF listening-port
 	if _, err = conn.Write([]byte(fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$%d\r\n%s\r\n", len(replicaPort), replicaPort))); err != nil {
-		return err
+		return nil, nil, err
 	}
-	if _, err = conn.Read(buf); err != nil {
-		return err
+	if _, err = ParseRESP(reader); err != nil {
+		return nil, nil, err
 	}
 
+	// REPLCONF capa
 	if _, err = conn.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n")); err != nil {
-		return err
+		return nil, nil, err
 	}
-	if _, err = conn.Read(buf); err != nil {
-		return err
+	if _, err = ParseRESP(reader); err != nil {
+		return nil, nil, err
 	}
 
+	// PSYNC
 	if _, err = conn.Write([]byte("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n")); err != nil {
-		return err
+		return nil, nil, err
 	}
-	return nil
+
+	return conn, reader, nil
 }
 
 func main() {
@@ -260,9 +268,58 @@ func main() {
 				slog.Error("invalid replicaof target", "replicaof", config.replicaof, "err", err)
 				os.Exit(1)
 			}
-			if err := performReplicaHandshake(host, port, config.port); err != nil {
+
+			conn, reader, err := performReplicaHandshake(host, port, config.port)
+			if err != nil {
 				slog.Error("failed to perform replica handshake", "host", host, "port", port, "err", err)
 				os.Exit(1)
+			}
+			// Connection is finally closed when the program exits or master drops us
+			defer conn.Close()
+
+			// 1. Read +FULLRESYNC <replid> <offset>\r\n
+			val, err := ParseRESP(reader)
+			if err != nil {
+				slog.Error("failed to read FULLRESYNC", "err", err)
+				return
+			}
+			slog.Debug("received PSYNC response", "val", val)
+
+			// 2. Read the RDB file payload ($<length>\r\n<RDB_CONTENT>)
+			// Using manual ReadString because RDB doesn't have a trailing \r\n for ParseRESP
+			line, err := reader.ReadString('\n')
+			if err != nil || !strings.HasPrefix(line, "$") {
+				slog.Error("failed to read RDB length", "err", err)
+				return
+			}
+			lengthStr := strings.TrimSpace(line[1:])
+			length, err := strconv.Atoi(lengthStr)
+			if err != nil {
+				slog.Error("invalid RDB length", "err", err)
+				return
+			}
+
+			rdbBuf := make([]byte, length)
+			if _, err := io.ReadFull(reader, rdbBuf); err != nil {
+				slog.Error("failed to read RDB file", "err", err)
+				return
+			}
+			slog.Debug("read RDB file successfully", "size", length)
+
+			// 3. Continuously process propagated commands indefinitely
+			for {
+				val, err := ParseRESP(reader)
+				if err != nil {
+					slog.Error("master connection closed or parse error", "err", err)
+					break
+				}
+				arr, ok := val.([]any)
+				if !ok || len(arr) == 0 {
+					continue
+				}
+
+				// Process the command silently by passing nil for the connection
+				handleCommand(nil, arr, store, config)
 			}
 		}()
 	}
