@@ -35,6 +35,44 @@ type ReplicationManager struct {
 	replicaOffsets map[net.Conn]int
 }
 
+var globalReplManager = &ReplicationManager{
+	replicas:       make([]net.Conn, 0),
+	replicaOffsets: make(map[net.Conn]int),
+}
+
+func (rm *ReplicationManager) addReplica(conn net.Conn) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	rm.replicas = append(rm.replicas, conn)
+}
+
+func (rm *ReplicationManager) removeReplica(conn net.Conn) {
+	if conn == nil {
+		return
+	}
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	for i, c := range rm.replicas {
+		if c == conn {
+			// Remove connection from the slice
+			rm.replicas = append(rm.replicas[:i], rm.replicas[i+1:]...)
+			break
+		}
+	}
+	delete(rm.replicaOffsets, conn)
+}
+
+func (rm *ReplicationManager) propagate(arr []any) {
+	payload := encodeRESPArray(arr)
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	// Send the RESP command to all registered replicas
+	for _, conn := range rm.replicas {
+		_, _ = conn.Write(payload)
+	}
+}
+
 func parseReplicaTarget(replicaof string) (string, string, error) {
 	replicaof = strings.TrimSpace(replicaof)
 	if replicaof == "" {
@@ -105,6 +143,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	configPathFlag := flag.String("config", "", "Path to an optional config file")
 	dirFlag := flag.String("dir", cwd, "Directory where RDB files are stored")
 	dbFlag := flag.String("dbfilename", "", "Name of the RDB file name")
 	appendonlyFlag := flag.String("appendonly", "no", "Enable append-only mode")
@@ -115,24 +154,61 @@ func main() {
 	replicaof := flag.String("replicaof", "", "Address of the master server to replicate from (host:port)")
 	flag.Parse()
 
-	role := "master"
-	if *replicaof != "" {
-		role = "slave"
-	}
+	explicitFlags := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) {
+		explicitFlags[f.Name] = true
+	})
 
 	config := ServerConfig{
-		dir:            *dirFlag,
-		dbfilename:     *dbFlag,
-		appendonly:     *appendonlyFlag,
-		appenddirname:  *appenddirnameFlag,
-		appendfilename: *appendfilenameFlag,
-		appendfsync:    *appendfsyncFlag,
-		port:           *portFlag,
-		role:           role,
-		replicaof:      *replicaof,
+		dir:              cwd,
+		dbfilename:       "",
+		appendonly:       "no",
+		appenddirname:    "appendonlydir",
+		appendfilename:   "appendonly.aof",
+		appendfsync:      "everysec",
+		port:             "6379",
+		role:             "master",
+		replicaof:        "",
+		masterReplID:     "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+		masterReplOffset: 0,
+	}
 
-		masterReplID:     "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", // This is a placeholder for the master replication ID. In a real-world scenario, this would be dynamically generated or retrieved from the master server.
-		masterReplOffset: 0,                                          // This is a placeholder for the master replication offset. In a real-world scenario, this would be dynamically updated based on the replication state.
+	if resolvedConfigPath := resolveConfigPath(*configPathFlag); resolvedConfigPath != "" {
+		if values, err := loadConfigFromFile(resolvedConfigPath); err != nil {
+			slog.Warn("failed to load config file, continuing with defaults", "path", resolvedConfigPath, "err", err)
+		} else if err := applyConfigFileValues(&config, values); err != nil {
+			slog.Warn("invalid config values, continuing with defaults", "path", resolvedConfigPath, "err", err)
+		}
+	}
+
+	if explicitFlags["dir"] {
+		config.dir = *dirFlag
+	}
+	if explicitFlags["dbfilename"] {
+		config.dbfilename = *dbFlag
+	}
+	if explicitFlags["appendonly"] {
+		config.appendonly = *appendonlyFlag
+	}
+	if explicitFlags["appenddirname"] {
+		config.appenddirname = *appenddirnameFlag
+	}
+	if explicitFlags["appendfilename"] {
+		config.appendfilename = *appendfilenameFlag
+	}
+	if explicitFlags["appendfsync"] {
+		config.appendfsync = *appendfsyncFlag
+	}
+	if explicitFlags["port"] {
+		config.port = *portFlag
+	}
+	if explicitFlags["replicaof"] {
+		config.replicaof = *replicaof
+	}
+	if config.replicaof != "" {
+		config.role = "slave"
+	} else {
+		config.role = "master"
 	}
 	slog.Debug("Starting server", "config", config)
 

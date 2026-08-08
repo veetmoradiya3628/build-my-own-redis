@@ -94,6 +94,8 @@ func writeArrayResponse(conn net.Conn, items []string) error {
 }
 
 func persistWriteCommand(conn net.Conn, config ServerConfig, arr []any) bool {
+	globalReplManager.propagate(arr)
+
 	if conn == nil || config.appendonly != "yes" {
 		return true
 	}
@@ -288,8 +290,10 @@ func handlePSYNC(conn net.Conn, config ServerConfig) {
 	emptyRDB := []byte("REDIS0006")
 	emptyRDB = append(emptyRDB, 0xFF)
 	emptyRDB = append(emptyRDB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-	_, _ = conn.Write([]byte(fmt.Sprintf("$%d\r\n", len(emptyRDB))))
+	_, _ = conn.Write(fmt.Appendf(nil, "$%d\r\n", len(emptyRDB)))
 	_, _ = conn.Write(emptyRDB)
+
+	globalReplManager.addReplica(conn)
 }
 
 // handleECHO replies with the provided argument as a bulk string.

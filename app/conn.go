@@ -29,6 +29,7 @@ func handleConnection(conn net.Conn, store *Store, config ServerConfig) {
 	defer store.RemoveSubscriber(conn)
 	defer store.ClearTx(conn)
 	defer store.Unwatch(conn)
+	defer globalReplManager.removeReplica(conn)
 
 	reader := bufio.NewReader(conn)
 	for {

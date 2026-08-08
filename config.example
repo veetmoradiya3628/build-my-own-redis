@@ -1,0 +1,12 @@
+# Example config file for the Redis-compatible server
+# Uncomment or edit values as needed.
+
+#dir=/tmp/redis-data
+#dbfilename=dump.rdb
+#appendonly=no
+#appenddirname=appendonlydir
+#appendfilename=appendonly.aof
+#appendfsync=everysec
+#port=6379
+#replicaof=
+#role=master

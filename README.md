@@ -31,3 +31,29 @@ Note: This section is for stages 2 and beyond.
    `app/main.go`.
 1. Commit your changes and run `git push origin master` to submit your solution
    to CodeCrafters. Test output will be streamed to your terminal.
+
+## Optional config file support
+
+The server still supports the existing CLI flags. You can also load settings from a config file using `--config`.
+
+Example:
+
+```sh
+./your_program.sh --config config.example
+```
+
+The example file is [config.example](config.example).
+
+## Docker
+
+Build the image:
+
+```sh
+docker build -t redis-local .
+```
+
+Run it:
+
+```sh
+docker run --rm -p 6379:6379 redis-local
+```
