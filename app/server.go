@@ -10,15 +10,17 @@ import (
 )
 
 type ServerConfig struct {
-	dir            string
-	dbfilename     string
-	appendonly     string
-	appenddirname  string
-	appendfilename string
-	appendfsync    string
-	port           string
-	role           string
-	replicaof      string
+	dir              string
+	dbfilename       string
+	appendonly       string
+	appenddirname    string
+	appendfilename   string
+	appendfsync      string
+	port             string
+	role             string
+	replicaof        string
+	masterReplID     string
+	masterReplOffset int64
 }
 
 func main() {
@@ -55,6 +57,9 @@ func main() {
 		port:           *portFlag,
 		role:           role,
 		replicaof:      *replicaof,
+
+		masterReplID:     "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", // This is a placeholder for the master replication ID. In a real-world scenario, this would be dynamically generated or retrieved from the master server.
+		masterReplOffset: 0,                                          // This is a placeholder for the master replication offset. In a real-world scenario, this would be dynamically updated based on the replication state.
 	}
 	slog.Debug("Starting server", "config", config)
 

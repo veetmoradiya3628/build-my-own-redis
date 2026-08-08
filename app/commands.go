@@ -1482,6 +1482,9 @@ func handleINFO(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("role:%s\r\n", config.role))
+	sb.WriteString(fmt.Sprintf("master_replid:%s\r\n", config.masterReplID))
+	sb.WriteString(fmt.Sprintf("master_repl_offset:%d\r\n", config.masterReplOffset))
+
 	infoString := sb.String()
 	writeBulkString(conn, infoString)
 }
