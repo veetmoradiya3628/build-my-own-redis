@@ -40,7 +40,7 @@ func writeErr(conn net.Conn, msg string) {
 		return
 	}
 	if strings.HasPrefix(msg, "WRONGPASS") {
-		writeString(conn, msg)
+		writeString(conn, "-"+msg)
 		return
 	}
 
