@@ -300,20 +300,36 @@ func handleAUTH(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 		return
 	}
 
-	if config.requirepass == "" {
-		writeErr(conn, "ERR Client sent AUTH, but no password is set")
-		return
-	}
-
 	var password string
-	// Redis 6+ allows `AUTH <username> <password>`. Standard allows `AUTH <password>`
 	if len(arr) == 3 {
 		password, _ = asString(arr[2])
 	} else {
 		password, _ = asString(arr[1])
 	}
 
-	if password == config.requirepass {
+	aclMu.RLock()
+	hasPass := config.requirepass != "" || len(defaultUserPasswords) > 0
+
+	valid := false
+	// Check against config
+	if config.requirepass != "" && password == config.requirepass {
+		valid = true
+	}
+	// Check against dynamic ACL passwords
+	for _, p := range defaultUserPasswords {
+		if password == p {
+			valid = true
+			break
+		}
+	}
+	aclMu.RUnlock()
+
+	if !hasPass {
+		writeErr(conn, "ERR Client sent AUTH, but no password is set")
+		return
+	}
+
+	if valid {
 		store.Authenticate(conn)
 		writeOK(conn)
 	} else {
