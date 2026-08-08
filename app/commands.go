@@ -39,11 +39,6 @@ func writeErr(conn net.Conn, msg string) {
 	if conn == nil {
 		return
 	}
-	if strings.HasPrefix(msg, "WRONGPASS") {
-		writeString(conn, "-"+msg)
-		return
-	}
-
 	_, _ = conn.Write([]byte("-ERR " + msg + "\r\n"))
 	if addr := conn.RemoteAddr(); addr != nil {
 		slog.Warn("writeErr", "remote", addr.String(), "msg", msg)
