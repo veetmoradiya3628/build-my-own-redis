@@ -40,7 +40,7 @@ func writeErr(conn net.Conn, msg string) {
 		return
 	}
 	if strings.HasPrefix(msg, "WRONGPASS") {
-		_, _ = conn.Write([]byte(msg + "\r\n"))
+		writeString(conn, msg)
 		return
 	}
 
