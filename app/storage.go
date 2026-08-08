@@ -13,15 +13,16 @@ import (
 )
 
 type Store struct {
-	cache               map[string]any
-	mu                  sync.RWMutex
-	waiters             map[string][]chan string
-	expiry              map[string]time.Time
-	pubsub              map[string]map[net.Conn]struct{}
-	clientSubscriptions map[net.Conn]map[string]struct{}
-	transactions        map[net.Conn][][]any
-	watchedKeys         map[string]map[net.Conn]struct{}
-	dirtyClients        map[net.Conn]bool
+	cache                map[string]any
+	mu                   sync.RWMutex
+	waiters              map[string][]chan string
+	expiry               map[string]time.Time
+	pubsub               map[string]map[net.Conn]struct{}
+	clientSubscriptions  map[net.Conn]map[string]struct{}
+	transactions         map[net.Conn][][]any
+	watchedKeys          map[string]map[net.Conn]struct{}
+	dirtyClients         map[net.Conn]bool
+	authenticatedClients map[net.Conn]bool
 }
 
 // ZSetNode represents a member of a sorted set with its associated score.
@@ -84,19 +85,48 @@ func NewStore(data map[string]any, expiry map[string]time.Time) *Store {
 	}
 
 	return &Store{
-		cache:               data,
-		expiry:              expiry, // Initialize with RDB expiry data
-		waiters:             make(map[string][]chan string),
-		pubsub:              make(map[string]map[net.Conn]struct{}),
-		clientSubscriptions: make(map[net.Conn]map[string]struct{}),
-		transactions:        make(map[net.Conn][][]any),
-		watchedKeys:         make(map[string]map[net.Conn]struct{}),
-		dirtyClients:        make(map[net.Conn]bool),
+		cache:                data,
+		expiry:               expiry, // Initialize with RDB expiry data
+		waiters:              make(map[string][]chan string),
+		pubsub:               make(map[string]map[net.Conn]struct{}),
+		clientSubscriptions:  make(map[net.Conn]map[string]struct{}),
+		transactions:         make(map[net.Conn][][]any),
+		watchedKeys:          make(map[string]map[net.Conn]struct{}),
+		dirtyClients:         make(map[net.Conn]bool),
+		authenticatedClients: make(map[net.Conn]bool),
 	}
 }
 
 func init() {
 	slog.Debug("storage package initialized")
+}
+
+func (s *Store) Authenticate(conn net.Conn) {
+	if conn == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.authenticatedClients[conn] = true
+}
+
+func (s *Store) IsAuthenticated(conn net.Conn) bool {
+	// A nil conn (e.g., internal replica propagation) is implicitly trusted
+	if conn == nil {
+		return true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.authenticatedClients[conn]
+}
+
+func (s *Store) RemoveAuth(conn net.Conn) {
+	if conn == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.authenticatedClients, conn)
 }
 
 // Set stores a key/value pair without expiration.

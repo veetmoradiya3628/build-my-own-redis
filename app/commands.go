@@ -158,6 +158,11 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	}
 	slog.Debug("handleCommand", "remote", remote, "raw_cmd", cmd)
 
+	if config.requirepass != "" && !store.IsAuthenticated(conn) && cmd != "AUTH" {
+		writeErr(conn, "NOAUTH Authentication required.")
+		return
+	}
+
 	// Intercept commands if the client is in Subscribed mode
 	if conn != nil && store.IsSubscribed(conn) {
 		switch cmd {
@@ -185,6 +190,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	}
 
 	switch cmd {
+	case "AUTH":
+		handleAUTH(conn, arr, store, config)
 	case "PING":
 		handlePING(conn, arr, store)
 	case "REPLCONF":
@@ -270,6 +277,34 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
+	}
+}
+
+// Add this handler anywhere in commands_2.go
+func handleAUTH(conn net.Conn, arr []any, store *Store, config ServerConfig) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'AUTH' command")
+		return
+	}
+
+	if config.requirepass == "" {
+		writeErr(conn, "ERR Client sent AUTH, but no password is set")
+		return
+	}
+
+	var password string
+	// Redis 6+ allows `AUTH <username> <password>`. Standard allows `AUTH <password>`
+	if len(arr) == 3 {
+		password, _ = asString(arr[2])
+	} else {
+		password, _ = asString(arr[1])
+	}
+
+	if password == config.requirepass {
+		store.Authenticate(conn)
+		writeOK(conn)
+	} else {
+		writeErr(conn, "WRONGPASS invalid username-password pair or user is disabled.")
 	}
 }
 

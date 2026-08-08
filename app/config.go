@@ -56,6 +56,9 @@ func applyConfigFileValues(config *ServerConfig, values map[string]string) error
 	if v, ok := values["appendfsync"]; ok && v != "" {
 		config.appendfsync = v
 	}
+	if v, ok := values["requirepass"]; ok && v != "" {
+		config.requirepass = v
+	}
 	if v, ok := values["port"]; ok && v != "" {
 		config.port = v
 	}

@@ -22,6 +22,7 @@ type ServerConfig struct {
 	appenddirname  string
 	appendfilename string
 	appendfsync    string
+	requirepass    string
 
 	port             string
 	role             string
@@ -164,6 +165,7 @@ func main() {
 	appendfsyncFlag := flag.String("appendfsync", "everysec", "AOF fsync policy")
 	portFlag := flag.String("port", "6379", "Port to listen on")
 	replicaof := flag.String("replicaof", "", "Address of the master server to replicate from (host:port)")
+	requirepassFlag := flag.String("requirepass", "", "Password required for clients to authenticate")
 	flag.Parse()
 
 	explicitFlags := map[string]bool{}
@@ -178,6 +180,7 @@ func main() {
 		appenddirname:    "appendonlydir",
 		appendfilename:   "appendonly.aof",
 		appendfsync:      "everysec",
+		requirepass:      "",
 		port:             "6379",
 		role:             "master",
 		replicaof:        "",
@@ -210,6 +213,9 @@ func main() {
 	}
 	if explicitFlags["appendfsync"] {
 		config.appendfsync = *appendfsyncFlag
+	}
+	if explicitFlags["requirepass"] {
+		config.requirepass = *requirepassFlag
 	}
 	if explicitFlags["port"] {
 		config.port = *portFlag
