@@ -185,6 +185,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	switch cmd {
 	case "PING":
 		handlePING(conn, arr, store)
+	case "REPLCONF":
+		handleREPLCONF(conn)
 	case "ECHO":
 		handleECHO(conn, arr)
 	case "SET":
@@ -272,6 +274,10 @@ func handlePING(conn net.Conn, arr []any, store *Store) {
 			writeString(conn, "PONG")
 		}
 	}
+}
+
+func handleREPLCONF(conn net.Conn) {
+	writeOK(conn)
 }
 
 // handleECHO replies with the provided argument as a bulk string.

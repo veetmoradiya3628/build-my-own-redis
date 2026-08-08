@@ -8,21 +8,31 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 type ServerConfig struct {
-	dir              string
-	dbfilename       string
-	appendonly       string
-	appenddirname    string
-	appendfilename   string
-	appendfsync      string
+	dir            string
+	dbfilename     string
+	appendonly     string
+	appenddirname  string
+	appendfilename string
+	appendfsync    string
+
 	port             string
 	role             string
 	replicaof        string
 	masterReplID     string
 	masterReplOffset int64
+}
+
+// Global or Manager state for Replicas
+type ReplicationManager struct {
+	mu             sync.Mutex
+	replicas       []net.Conn
+	masterOffset   int
+	replicaOffsets map[net.Conn]int
 }
 
 func parseReplicaTarget(replicaof string) (string, string, error) {
@@ -168,15 +178,17 @@ func main() {
 	}
 
 	if config.role == "slave" {
-		host, port, err := parseReplicaTarget(config.replicaof)
-		if err != nil {
-			slog.Error("invalid replicaof target", "replicaof", config.replicaof, "err", err)
-			os.Exit(1)
-		}
-		if err := performReplicaHandshake(host, port, config.port); err != nil {
-			slog.Error("failed to perform replica handshake", "host", host, "port", port, "err", err)
-			os.Exit(1)
-		}
+		go func() {
+			host, port, err := parseReplicaTarget(config.replicaof)
+			if err != nil {
+				slog.Error("invalid replicaof target", "replicaof", config.replicaof, "err", err)
+				os.Exit(1)
+			}
+			if err := performReplicaHandshake(host, port, config.port); err != nil {
+				slog.Error("failed to perform replica handshake", "host", host, "port", port, "err", err)
+				os.Exit(1)
+			}
+		}()
 	}
 
 	l, err := net.Listen("tcp", "0.0.0.0:"+config.port)
