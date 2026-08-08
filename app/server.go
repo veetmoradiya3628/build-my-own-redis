@@ -46,18 +46,37 @@ func parseReplicaTarget(replicaof string) (string, string, error) {
 	return "", "", fmt.Errorf("invalid replicaof target %q", replicaof)
 }
 
-func performReplicaHandshake(host, port string) error {
-	if host == "" || port == "" {
+func performReplicaHandshake(host, masterPort, replicaPort string) error {
+	if host == "" || masterPort == "" || replicaPort == "" {
 		return fmt.Errorf("invalid replica target")
 	}
 
-	conn, err := net.Dial("tcp", net.JoinHostPort(host, port))
+	conn, err := net.Dial("tcp", net.JoinHostPort(host, masterPort))
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	_, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+	if _, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n")); err != nil {
+		return err
+	}
+
+	buf := make([]byte, 64)
+	if _, err = conn.Read(buf); err != nil {
+		return err
+	}
+
+	if _, err = conn.Write([]byte(fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$%d\r\n%s\r\n", len(replicaPort), replicaPort))); err != nil {
+		return err
+	}
+	if _, err = conn.Read(buf); err != nil {
+		return err
+	}
+
+	if _, err = conn.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n")); err != nil {
+		return err
+	}
+	_, err = conn.Read(buf)
 	return err
 }
 
@@ -148,7 +167,7 @@ func main() {
 			slog.Error("invalid replicaof target", "replicaof", config.replicaof, "err", err)
 			os.Exit(1)
 		}
-		if err := performReplicaHandshake(host, port); err != nil {
+		if err := performReplicaHandshake(host, port, config.port); err != nil {
 			slog.Error("failed to perform replica handshake", "host", host, "port", port, "err", err)
 			os.Exit(1)
 		}
