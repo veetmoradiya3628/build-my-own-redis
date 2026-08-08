@@ -170,6 +170,10 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	authRequired := config.requirepass != "" || len(defaultUserPasswords) > 0
 	aclMu.RUnlock()
 
+	if !authRequired && !store.IsAuthenticated(conn) {
+		store.Authenticate(conn)
+	}
+
 	// Reject all commands except AUTH if a password is required but the client hasn't provided it yet
 	if authRequired && !store.IsAuthenticated(conn) && cmd != "AUTH" {
 		writeErr(conn, "NOAUTH Authentication required.")
