@@ -188,7 +188,9 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	case "PING":
 		handlePING(conn, arr, store)
 	case "REPLCONF":
-		handleREPLCONF(conn)
+		handleREPLCONF(conn, arr)
+	case "WAIT":
+		handleWAIT(conn, arr)
 	case "PSYNC":
 		handlePSYNC(conn, config)
 	case "ECHO":
@@ -280,8 +282,81 @@ func handlePING(conn net.Conn, arr []any, store *Store) {
 	}
 }
 
-func handleREPLCONF(conn net.Conn) {
+func handleREPLCONF(conn net.Conn, arr []any) {
+	if len(arr) >= 3 {
+		arg1, _ := asString(arr[1])
+		if strings.ToUpper(arg1) == "ACK" {
+			// The master receives the ACK from the replica.
+			offsetStr, _ := asString(arr[2])
+			offset, _ := strconv.Atoi(offsetStr)
+
+			// Update the offset for this specific replica connection
+			globalReplManager.mu.Lock()
+			globalReplManager.replicaOffsets[conn] = offset
+			globalReplManager.mu.Unlock()
+
+			// ACKs are silent, do not write OK back.
+			return
+		}
+	}
 	writeOK(conn)
+}
+
+func handleWAIT(conn net.Conn, arr []any) {
+	if len(arr) < 3 {
+		writeErr(conn, "wrong number of arguments for 'WAIT' command")
+		return
+	}
+
+	numReplicasStr, _ := asString(arr[1])
+	timeoutStr, _ := asString(arr[2])
+
+	expectedReplicas, _ := strconv.Atoi(numReplicasStr)
+	timeout, _ := strconv.Atoi(timeoutStr)
+
+	globalReplManager.mu.Lock()
+	masterOffset := globalReplManager.masterOffset
+	// Create a safe copy of active connections
+	activeReplicas := make([]net.Conn, len(globalReplManager.replicas))
+	copy(activeReplicas, globalReplManager.replicas)
+	globalReplManager.mu.Unlock()
+
+	// If no replicas requested or no commands were ever propagated, return immediately
+	if expectedReplicas == 0 || masterOffset == 0 {
+		writeInteger(conn, len(activeReplicas))
+		return
+	}
+
+	// Ping all replicas for their offsets (bypassing propagate so we don't increase masterOffset)
+	getAckPayload := encodeRESPArray([]any{"REPLCONF", "GETACK", "*"})
+	for _, c := range activeReplicas {
+		_, _ = c.Write(getAckPayload)
+	}
+
+	// Poll until we have enough ACKs or the timeout expires
+	startTime := time.Now()
+	for {
+		ackCount := 0
+		globalReplManager.mu.Lock()
+		for _, c := range activeReplicas {
+			if offset, ok := globalReplManager.replicaOffsets[c]; ok && offset >= masterOffset {
+				ackCount++
+			}
+		}
+		globalReplManager.mu.Unlock()
+
+		if ackCount >= expectedReplicas {
+			writeInteger(conn, ackCount)
+			return
+		}
+
+		if timeout > 0 && time.Since(startTime).Milliseconds() >= int64(timeout) {
+			writeInteger(conn, ackCount)
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond) // brief poll interval
+	}
 }
 
 func handlePSYNC(conn net.Conn, config ServerConfig) {

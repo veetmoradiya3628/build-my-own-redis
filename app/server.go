@@ -65,10 +65,14 @@ func (rm *ReplicationManager) removeReplica(conn net.Conn) {
 	delete(rm.replicaOffsets, conn)
 }
 
+// 1. Update propagate to increment the masterOffset by the bytes sent
 func (rm *ReplicationManager) propagate(arr []any) {
 	payload := encodeRESPArray(arr)
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
+
+	// Track bytes propagated
+	rm.masterOffset += len(payload)
 
 	// Send the RESP command to all registered replicas
 	for _, conn := range rm.replicas {
@@ -119,7 +123,7 @@ func performReplicaHandshake(host, masterPort, replicaPort string) (net.Conn, *b
 	}
 
 	// REPLCONF listening-port
-	if _, err = conn.Write([]byte(fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$%d\r\n%s\r\n", len(replicaPort), replicaPort))); err != nil {
+	if _, err = fmt.Fprintf(conn, "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$%d\r\n%s\r\n", len(replicaPort), replicaPort); err != nil {
 		return nil, nil, err
 	}
 	if _, err = ParseRESP(reader); err != nil {
@@ -274,10 +278,9 @@ func main() {
 				slog.Error("failed to perform replica handshake", "host", host, "port", port, "err", err)
 				os.Exit(1)
 			}
-			// Connection is finally closed when the program exits or master drops us
 			defer conn.Close()
 
-			// 1. Read +FULLRESYNC <replid> <offset>\r\n
+			// 1. Read +FULLRESYNC
 			val, err := ParseRESP(reader)
 			if err != nil {
 				slog.Error("failed to read FULLRESYNC", "err", err)
@@ -285,8 +288,7 @@ func main() {
 			}
 			slog.Debug("received PSYNC response", "val", val)
 
-			// 2. Read the RDB file payload ($<length>\r\n<RDB_CONTENT>)
-			// Using manual ReadString because RDB doesn't have a trailing \r\n for ParseRESP
+			// 2. Read RDB file
 			line, err := reader.ReadString('\n')
 			if err != nil || !strings.HasPrefix(line, "$") {
 				slog.Error("failed to read RDB length", "err", err)
@@ -304,22 +306,44 @@ func main() {
 				slog.Error("failed to read RDB file", "err", err)
 				return
 			}
-			slog.Debug("read RDB file successfully", "size", length)
 
-			// 3. Continuously process propagated commands indefinitely
+			// Track processed replication offset on replica
+			var replicaOffset int64 = 0
+
+			// 3. Continuously process propagated commands from master
+			// 3. Continuously process propagated commands from master
 			for {
-				val, err := ParseRESP(reader)
+				bufReader := reader
+
+				val, err := ParseRESP(bufReader)
 				if err != nil {
 					slog.Error("master connection closed or parse error", "err", err)
 					break
 				}
+
 				arr, ok := val.([]any)
 				if !ok || len(arr) == 0 {
 					continue
 				}
 
-				// Process the command silently by passing nil for the connection
+				// Calculate exact bytes of encoded RESP command read
+				cmdBytes := int64(len(encodeRESPArray(arr)))
+				cmdRaw, _ := asString(arr[0])
+
+				// Intercept GETACK directly on the replica side
+				if strings.ToUpper(cmdRaw) == "REPLCONF" && len(arr) >= 3 {
+					arg1, _ := asString(arr[1])
+					if strings.ToUpper(arg1) == "GETACK" {
+						offsetStr := strconv.FormatInt(replicaOffset, 10)
+						_ = writeArrayResponse(conn, []string{"REPLCONF", "ACK", offsetStr})
+						replicaOffset += cmdBytes
+						continue
+					}
+				}
+
+				// Execute command silently
 				handleCommand(nil, arr, store, config)
+				replicaOffset += cmdBytes
 			}
 		}()
 	}
