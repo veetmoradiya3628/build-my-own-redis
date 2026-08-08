@@ -1633,6 +1633,28 @@ func handleACL(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	switch strings.ToUpper(subcommand) {
 	case "WHOAMI":
 		writeBulkString(conn, "default")
+	case "GETUSER":
+		if len(arr) < 3 {
+			writeErr(conn, "ERR wrong number of arguments for 'acl|getuser' command")
+			return
+		}
+
+		username, _ := asString(arr[2])
+		if username == "default" {
+			// Mock the standard Redis response for the default user
+			resp := []any{
+				"flags", []any{"on", "allkeys", "allchannels", "allcommands"},
+				"passwords", []any{},
+				"commands", "+@all",
+				"keys", "~*",
+				"channels", "&*",
+			}
+			// Leverage your existing encodeRESPArray to handle the nested slice
+			conn.Write(encodeRESPArray(resp))
+		} else {
+			// Standard Redis behavior for a non-existent user
+			writeNullBulk(conn)
+		}
 	default:
 		writeErr(conn, "unknown ACL subcommand")
 	}
