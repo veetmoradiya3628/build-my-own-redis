@@ -265,6 +265,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleGEOSEARCH(conn, arr, store)
 	case "INFO":
 		handleINFO(conn, arr, store, config)
+	case "ACL":
+		handleACL(conn, arr, store, config)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -1584,6 +1586,21 @@ func handleINFO(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 
 	infoString := sb.String()
 	writeBulkString(conn, infoString)
+}
+
+func handleACL(conn net.Conn, arr []any, store *Store, config ServerConfig) {
+	if len(arr) < 2 {
+		writeErr(conn, "wrong number of arguments for 'ACL' command")
+		return
+	}
+
+	subcommand, _ := asString(arr[1])
+	switch strings.ToUpper(subcommand) {
+	case "WHOAMI":
+		writeBulkString(conn, "default")
+	default:
+		writeErr(conn, "unknown ACL subcommand")
+	}
 }
 
 func haversineDistanceMeters(lat1, lon1, lat2, lon2 float64) float64 {
