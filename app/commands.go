@@ -255,6 +255,8 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 		handleGEODIST(conn, arr, store)
 	case "GEOSEARCH":
 		handleGEOSEARCH(conn, arr, store)
+	case "INFO":
+		handleINFO(conn, arr, store, config)
 	default:
 		slog.Warn("unknown command", "cmd", cmd, "remote", remote)
 		writeErr(conn, "unknown command")
@@ -1468,6 +1470,20 @@ func handleGEOSEARCH(conn net.Conn, arr []any, store *Store) {
 	}
 
 	writeArrayResponse(conn, matches)
+}
+
+// Implementation for INFO command
+func handleINFO(conn net.Conn, arr []any, store *Store, config ServerConfig) {
+	slog.Debug("INFO command received", "remote", conn.RemoteAddr())
+	if len(arr) != 1 {
+		writeErr(conn, "wrong number of arguments for 'INFO' command")
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("role:%s\r\n", config.role))
+	infoString := sb.String()
+	writeBulkString(conn, infoString)
 }
 
 func haversineDistanceMeters(lat1, lon1, lat2, lon2 float64) float64 {

@@ -17,6 +17,7 @@ type ServerConfig struct {
 	appendfilename string
 	appendfsync    string
 	port           string
+	role           string
 }
 
 func main() {
@@ -37,6 +38,8 @@ func main() {
 	portFlag := flag.String("port", "6379", "Port to listen on")
 	flag.Parse()
 
+	role := "master"
+
 	config := ServerConfig{
 		dir:            *dirFlag,
 		dbfilename:     *dbFlag,
@@ -45,8 +48,9 @@ func main() {
 		appendfilename: *appendfilenameFlag,
 		appendfsync:    *appendfsyncFlag,
 		port:           *portFlag,
+		role:           role,
 	}
-	slog.Debug("Starting server", "dir", config.dir, "dbfilename", config.dbfilename, "appendonly", config.appendonly, "appenddirname", config.appenddirname, "appendfilename", config.appendfilename, "appendfsync", config.appendfsync, "port", config.port)
+	slog.Debug("Starting server", "dir", config.dir, "dbfilename", config.dbfilename, "appendonly", config.appendonly, "appenddirname", config.appenddirname, "appendfilename", config.appendfilename, "appendfsync", config.appendfsync, "port", config.port, "role", config.role)
 
 	// 1. Check if both flags are provided
 	var initialData map[string]any
