@@ -10,12 +10,13 @@ import (
 )
 
 type ServerConfig struct {
-	dir        		string
-	dbfilename 		string
-	appendonly 		string
-	appenddirname 	string
-	appendfilename	string
-	appendfsync 	string
+	dir            string
+	dbfilename     string
+	appendonly     string
+	appenddirname  string
+	appendfilename string
+	appendfsync    string
+	port           string
 }
 
 func main() {
@@ -33,17 +34,19 @@ func main() {
 	appenddirnameFlag := flag.String("appenddirname", "appendonlydir", "Directory where AOF files are stored")
 	appendfilenameFlag := flag.String("appendfilename", "appendonly.aof", "Name of the AOF file")
 	appendfsyncFlag := flag.String("appendfsync", "everysec", "AOF fsync policy")
+	portFlag := flag.String("port", "6379", "Port to listen on")
 	flag.Parse()
 
 	config := ServerConfig{
-		dir:         *dirFlag,
-		dbfilename:  *dbFlag,
-		appendonly:  *appendonlyFlag,
+		dir:            *dirFlag,
+		dbfilename:     *dbFlag,
+		appendonly:     *appendonlyFlag,
 		appenddirname:  *appenddirnameFlag,
 		appendfilename: *appendfilenameFlag,
-		appendfsync:  *appendfsyncFlag,
+		appendfsync:    *appendfsyncFlag,
+		port:           *portFlag,
 	}
-	slog.Debug("Starting server", "dir", config.dir, "dbfilename", config.dbfilename, "appendonly", config.appendonly, "appenddirname", config.appenddirname, "appendfilename", config.appendfilename, "appendfsync", config.appendfsync)
+	slog.Debug("Starting server", "dir", config.dir, "dbfilename", config.dbfilename, "appendonly", config.appendonly, "appenddirname", config.appenddirname, "appendfilename", config.appendfilename, "appendfsync", config.appendfsync, "port", config.port)
 
 	// 1. Check if both flags are provided
 	var initialData map[string]any
@@ -86,14 +89,14 @@ func main() {
 		}
 	}
 
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	l, err := net.Listen("tcp", "0.0.0.0:"+config.port)
 	if err != nil {
-		slog.Error("failed to bind to port 6379", "err", err)
+		slog.Error("failed to bind to port "+config.port, "err", err)
 		os.Exit(1)
 	}
 	defer l.Close()
 
-	slog.Info("listening connection on port : 6379")
+	slog.Info("listening connection on port : " + config.port)
 
 	for {
 		conn, err := l.Accept()
