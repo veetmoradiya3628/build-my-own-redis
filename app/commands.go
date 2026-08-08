@@ -39,7 +39,18 @@ func writeErr(conn net.Conn, msg string) {
 	if conn == nil {
 		return
 	}
-	_, _ = conn.Write([]byte("-ERR " + msg + "\r\n"))
+
+	// Check if the message already starts with a specific Redis error prefix
+	prefix := "-ERR "
+	if strings.HasPrefix(msg, "ERR ") ||
+		strings.HasPrefix(msg, "NOAUTH ") ||
+		strings.HasPrefix(msg, "WRONGPASS ") ||
+		strings.HasPrefix(msg, "WRONGTYPE ") {
+		prefix = "-"
+	}
+
+	_, _ = conn.Write([]byte(prefix + msg + "\r\n"))
+
 	if addr := conn.RemoteAddr(); addr != nil {
 		slog.Warn("writeErr", "remote", addr.String(), "msg", msg)
 	}
