@@ -1475,7 +1475,7 @@ func handleGEOSEARCH(conn net.Conn, arr []any, store *Store) {
 // Implementation for INFO command
 func handleINFO(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	slog.Debug("INFO command received", "remote", conn.RemoteAddr())
-	if len(arr) != 1 {
+	if len(arr) < 1 {
 		writeErr(conn, "wrong number of arguments for 'INFO' command")
 		return
 	}
