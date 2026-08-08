@@ -1,13 +1,21 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"math"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+var (
+	aclMu                sync.RWMutex
+	defaultUserPasswords []string
 )
 
 // Helper: safely assert any to string
@@ -158,7 +166,12 @@ func handleCommand(conn net.Conn, arr []any, store *Store, config ServerConfig) 
 	}
 	slog.Debug("handleCommand", "remote", remote, "raw_cmd", cmd)
 
-	if config.requirepass != "" && !store.IsAuthenticated(conn) && cmd != "AUTH" {
+	aclMu.RLock()
+	authRequired := config.requirepass != "" || len(defaultUserPasswords) > 0
+	aclMu.RUnlock()
+
+	// Reject all commands except AUTH if a password is required but the client hasn't provided it yet
+	if authRequired && !store.IsAuthenticated(conn) && cmd != "AUTH" {
 		writeErr(conn, "NOAUTH Authentication required.")
 		return
 	}
@@ -1633,6 +1646,39 @@ func handleACL(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 	switch strings.ToUpper(subcommand) {
 	case "WHOAMI":
 		writeBulkString(conn, "default")
+
+	case "SETUSER":
+		if len(arr) < 3 {
+			writeErr(conn, "ERR wrong number of arguments for 'acl|setuser' command")
+			return
+		}
+		username, _ := asString(arr[2])
+		if username == "default" {
+			aclMu.Lock()
+			// Parse rules (everything after the username)
+			for i := 3; i < len(arr); i++ {
+				rule, _ := asString(arr[i])
+				if strings.HasPrefix(rule, ">") {
+					pass := rule[1:]
+					// Avoid duplicates
+					found := false
+					for _, p := range defaultUserPasswords {
+						if p == pass {
+							found = true
+							break
+						}
+					}
+					if !found {
+						defaultUserPasswords = append(defaultUserPasswords, pass)
+					}
+				}
+			}
+			aclMu.Unlock()
+			writeOK(conn)
+		} else {
+			writeErr(conn, "ERR user not found or not supported")
+		}
+
 	case "GETUSER":
 		if len(arr) < 3 {
 			writeErr(conn, "ERR wrong number of arguments for 'acl|getuser' command")
@@ -1641,28 +1687,45 @@ func handleACL(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 
 		username, _ := asString(arr[2])
 		if username == "default" {
-			// Include standard flags
+			aclMu.RLock()
+			passwords := make([]any, 0)
+			hasPassword := false
+
+			// Hash and append the config password if it exists
+			if config.requirepass != "" {
+				hasPassword = true
+				hash := sha256.Sum256([]byte(config.requirepass))
+				passwords = append(passwords, hex.EncodeToString(hash[:]))
+			}
+
+			// Hash and append dynamically added passwords
+			for _, p := range defaultUserPasswords {
+				hasPassword = true
+				hash := sha256.Sum256([]byte(p))
+				passwords = append(passwords, hex.EncodeToString(hash[:]))
+			}
+			aclMu.RUnlock()
+
 			flags := []any{"on", "allkeys", "allchannels", "allcommands"}
 
 			// If no password is required, advertise the "nopass" flag
-			if config.requirepass == "" {
+			if !hasPassword {
 				flags = append(flags, "nopass")
 			}
 
 			// Mock the standard Redis response for the default user
 			resp := []any{
 				"flags", flags,
-				"passwords", []any{},
+				"passwords", passwords,
 				"commands", "+@all",
 				"keys", "~*",
 				"channels", "&*",
 			}
-			// Leverage your existing encodeRESPArray to handle the nested slice
 			conn.Write(encodeRESPArray(resp))
 		} else {
-			// Standard Redis behavior for a non-existent user
 			writeNullBulk(conn)
 		}
+
 	default:
 		writeErr(conn, "unknown ACL subcommand")
 	}
