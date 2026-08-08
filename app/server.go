@@ -18,6 +18,7 @@ type ServerConfig struct {
 	appendfsync    string
 	port           string
 	role           string
+	replicaof      string
 }
 
 func main() {
@@ -36,9 +37,13 @@ func main() {
 	appendfilenameFlag := flag.String("appendfilename", "appendonly.aof", "Name of the AOF file")
 	appendfsyncFlag := flag.String("appendfsync", "everysec", "AOF fsync policy")
 	portFlag := flag.String("port", "6379", "Port to listen on")
+	replicaof := flag.String("replicaof", "", "Address of the master server to replicate from (host:port)")
 	flag.Parse()
 
 	role := "master"
+	if *replicaof != "" {
+		role = "slave"
+	}
 
 	config := ServerConfig{
 		dir:            *dirFlag,
@@ -49,8 +54,9 @@ func main() {
 		appendfsync:    *appendfsyncFlag,
 		port:           *portFlag,
 		role:           role,
+		replicaof:      *replicaof,
 	}
-	slog.Debug("Starting server", "dir", config.dir, "dbfilename", config.dbfilename, "appendonly", config.appendonly, "appenddirname", config.appenddirname, "appendfilename", config.appendfilename, "appendfsync", config.appendfsync, "port", config.port, "role", config.role)
+	slog.Debug("Starting server", "config", config)
 
 	// 1. Check if both flags are provided
 	var initialData map[string]any
