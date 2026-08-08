@@ -1641,9 +1641,17 @@ func handleACL(conn net.Conn, arr []any, store *Store, config ServerConfig) {
 
 		username, _ := asString(arr[2])
 		if username == "default" {
+			// Include standard flags
+			flags := []any{"on", "allkeys", "allchannels", "allcommands"}
+
+			// If no password is required, advertise the "nopass" flag
+			if config.requirepass == "" {
+				flags = append(flags, "nopass")
+			}
+
 			// Mock the standard Redis response for the default user
 			resp := []any{
-				"flags", []any{"on", "allkeys", "allchannels", "allcommands"},
+				"flags", flags,
 				"passwords", []any{},
 				"commands", "+@all",
 				"keys", "~*",
