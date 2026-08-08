@@ -2,10 +2,12 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,6 +23,42 @@ type ServerConfig struct {
 	replicaof        string
 	masterReplID     string
 	masterReplOffset int64
+}
+
+func parseReplicaTarget(replicaof string) (string, string, error) {
+	replicaof = strings.TrimSpace(replicaof)
+	if replicaof == "" {
+		return "", "", fmt.Errorf("replicaof is empty")
+	}
+
+	if strings.Contains(replicaof, " ") {
+		parts := strings.Fields(replicaof)
+		if len(parts) != 2 {
+			return "", "", fmt.Errorf("invalid replicaof target %q", replicaof)
+		}
+		return parts[0], parts[1], nil
+	}
+
+	if host, port, err := net.SplitHostPort(replicaof); err == nil {
+		return host, port, nil
+	}
+
+	return "", "", fmt.Errorf("invalid replicaof target %q", replicaof)
+}
+
+func performReplicaHandshake(host, port string) error {
+	if host == "" || port == "" {
+		return fmt.Errorf("invalid replica target")
+	}
+
+	conn, err := net.Dial("tcp", net.JoinHostPort(host, port))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	_, err = conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+	return err
 }
 
 func main() {
@@ -100,6 +138,18 @@ func main() {
 	if config.appendonly == "yes" {
 		if err := replayAOFCommands(config, store); err != nil {
 			slog.Error("failed to replay append-only file", "err", err)
+			os.Exit(1)
+		}
+	}
+
+	if config.role == "slave" {
+		host, port, err := parseReplicaTarget(config.replicaof)
+		if err != nil {
+			slog.Error("invalid replicaof target", "replicaof", config.replicaof, "err", err)
+			os.Exit(1)
+		}
+		if err := performReplicaHandshake(host, port); err != nil {
+			slog.Error("failed to perform replica handshake", "host", host, "port", port, "err", err)
 			os.Exit(1)
 		}
 	}
