@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  master:
+    build: .
+    image: go-redis-clone:latest
+    container_name: redis-master
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis.conf:/app/redis.conf:ro
+      - master-data:/data
+    command: ["--config", "/app/redis.conf", "--dir", "/data"]
+
+  replica-1:
+    build: .
+    image: go-redis-clone:latest
+    container_name: redis-replica-1
+    depends_on:
+      - master
+    ports:
+      - "6380:6379"
+    volumes:
+      - replica1-data:/data
+    # Use the --replicaof flag to point to the master service
+    command: ["--dir", "/data", "--port", "6379", "--replicaof", "master 6379"]
+
+  replica-2:
+    build: .
+    image: go-redis-clone:latest
+    container_name: redis-replica-2
+    depends_on:
+      - master
+    ports:
+      - "6381:6379"
+    volumes:
+      - replica2-data:/data
+    command: ["--dir", "/data", "--port", "6379", "--replicaof", "master 6379"]
+
+volumes:
+  master-data:
+  replica1-data:
+  replica2-data:
