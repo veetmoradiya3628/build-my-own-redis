@@ -29,4 +29,4 @@ jobs:
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/go-redis-clone:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/go-redis-clone:1.0.{{ github.run_number }}
