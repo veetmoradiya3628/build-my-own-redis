@@ -97,3 +97,13 @@ If you're looking to expand this project further, consider implementing:
 3. **Eviction Policies:** Implement memory limits (`maxmemory`) and algorithms like **LRU** (Least Recently Used) or **LFU** (Least Frequently Used) to evict keys when the cache is full.
 4. **RESP3 Support:** Upgrade the RESP parser to support Redis 6+ RESP3 features (maps, sets, booleans, floating-point numbers).
 5. **Cluster Mode / Sentinels:** Add support for highly available setups involving auto-failover, cluster routing (`MOVED` responses), and hash slots.
+
+## 🎯 Architecture
+
+### Single / Master Node architecture
+
+![alt text](images/single-node-architecture.png)
+
+### Multi Node / Master-slave architecture
+
+![alt text](images/multi-node-architecture.png)
